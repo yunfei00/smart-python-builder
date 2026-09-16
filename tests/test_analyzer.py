@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from analyzer import analyze_project, resolve_package
+from builder import EntryPointRequired, SmartBuilder
 
 
 def write(path: Path, text: str) -> None:
@@ -62,3 +65,27 @@ def test_ambiguous_entries_are_not_guessed(tmp_path):
     assert result.entry_point is None
     assert result.entry_is_ambiguous
     assert [p.name for p in result.entry_candidates] == ["main.py", "app.py"]
+
+
+def test_smart_builder_requires_entry_for_ambiguous_project(tmp_path):
+    write(tmp_path / "main.py", "print('main')\n")
+    write(tmp_path / "app.py", "print('app')\n")
+    builder = SmartBuilder(tmp_path / "workspace")
+    with pytest.raises(EntryPointRequired):
+        builder.build(tmp_path)
+
+
+def test_smart_builder_accepts_explicit_entry_without_building(tmp_path, monkeypatch):
+    write(tmp_path / "main.py", "import requests\n")
+    write(tmp_path / "app.py", "print('app')\n")
+    builder = SmartBuilder(tmp_path / "workspace")
+    captured = {}
+
+    def fake_build(request):
+        captured["request"] = request
+        return object()
+
+    monkeypatch.setattr(builder.engine, "build", fake_build)
+    result = builder.build(tmp_path, entry_point="main.py")
+    assert result.analysis.packages == ["requests"]
+    assert captured["request"].entry_point == (tmp_path / "main.py").resolve()
