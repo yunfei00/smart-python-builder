@@ -61,3 +61,10 @@ NEEDS_MANUAL_REVIEW，完整过程保存在 attempts.json。
 构建成功默认表示产物已生成。内部集成可提供 `artifact_validator` 回调，
 将实际 EXE 的运行错误纳入同一修复流程；此回调由运维代码提供，不能由 AI 指定。
 真实 Windows 修复验证：`uv run python tests/windows_ai_acceptance.py`。
+
+## 飞书通知
+
+配置 `BUILDER_FEISHU_WEBHOOK` 启用通知；`BUILDER_BASE_URL` 设置详情页地址。
+首次失败立即发送事件，AI 修复结束发送成功/最终失败、原始错误、诊断、修改与尝试记录。
+每次网络请求超时 5 秒，通知失败仅记录异常类型，不改变构建结果。
+未配置 Webhook 时不发送；FakeNotifier 用于本地验收。

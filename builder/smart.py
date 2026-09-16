@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
 
 from analyzer import ProjectAnalysis, analyze_project
@@ -10,6 +11,7 @@ from .engine import BuildEngine, BuildRequest, BuildResult
 from .experience import ExperienceEngine
 from .models import BuildPlan
 from .ai import RepairPlan, configured_provider
+from .notifications import NotificationService
 
 
 @dataclass(slots=True)
@@ -33,12 +35,14 @@ class EntryPointRequired(ValueError):
 class SmartBuilder:
     """Analyze an uploaded source and feed deterministic results into BuildEngine."""
 
-    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None):
+    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None):
         self.engine = BuildEngine(workspace_root, timeout)
         self.experiences = ExperienceEngine()
         self.ai_provider = ai_provider if ai_provider is not None else configured_provider()
         self.artifact_validator = artifact_validator
         self.on_state = None
+        self.notifications = notifications or NotificationService.configured()
+        self.details_url = os.environ.get('BUILDER_BASE_URL', 'http://127.0.0.1:8000')
 
     def build(
         self,
@@ -85,6 +89,10 @@ class SmartBuilder:
                 transition('SUCCESS')
                 break
             transition('FAILED')
+            if attempt == 0:
+                self.notifications.emit(dict(event='Build Failed', build_id=result.build_id, project=analysis.source.name,
+                    entry=plan.entry_point, dependencies=plan.dependencies, failed_stage='build/artifact validation',
+                    error_summary=result.error, ai_diagnosis_started=self.ai_provider is not None, details_url=self.details_url))
             if self.ai_provider is None:
                 break
             if attempt == 2:
@@ -109,7 +117,14 @@ class SmartBuilder:
                 attempts[-1]['diagnosis_error'] = str(exc)
                 transition('NEEDS_MANUAL_REVIEW')
                 break
-        (result.workspace / 'attempts.json').write_text(json.dumps(dict(states=states, attempts=attempts), ensure_ascii=False, indent=2), encoding='utf-8')
+        if any('repair' in item or 'diagnosis_error' in item for item in attempts):
+            self.notifications.emit(dict(event='AI Repair Success' if result.success else 'AI Repair Failed',
+                build_id=result.build_id, original_error=attempts[0]['error'], final_error=result.error,
+                attempts=[dict(number=item['number'], success=item['success']) for item in attempts],
+                diagnoses=[item.get('repair', item.get('diagnosis_error')) for item in attempts if 'repair' in item or 'diagnosis_error' in item],
+                status=states[-1], experience_candidate='pending creation' if result.success else None,
+                details_url=self.details_url, approval_url=self.details_url.split('?')[0].rstrip('/')+'/admin'))
+        (result.workspace / 'attempts.json').write_text(json.dumps(dict(states=states, attempts=attempts, notification_failures=self.notifications.failures), ensure_ascii=False, indent=2), encoding='utf-8')
         return SmartBuildResult(analysis, result, plan, states[-1], attempts, states)
 
     @staticmethod

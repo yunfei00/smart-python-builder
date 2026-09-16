@@ -48,6 +48,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder):
             builder = builder_factory(root / 'workspace')
             builder.engine.on_created = lambda build_id, log_file: job.update(build_id=build_id, log=str(log_file))
             builder.on_state = lambda state: job.update(status=state)
+            builder.details_url += '/?job=' + job_id
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
             job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
             if result.build.success:

@@ -80,7 +80,7 @@ AI 输入包括项目结构、代码分析、依赖、经验库、Build Plan、�
 
 ## Phase 6 — 飞书通知
 
-**状态：TODO**
+**状态：CLOSED**
 
 目标：管理员无需持续查看 Web 页面。
 
@@ -135,3 +135,7 @@ TODO → IN_PROGRESS → VERIFYING → CLOSED。37 项自动测试通过；本�
 ## Phase 5 验收记录（2026-09-17）
 
 TODO → IN_PROGRESS → VERIFYING → CLOSED。47 项测试通过；5 类修复输入、非法修复拒绝、两次重试上限、Provider HTTP 契约均验证。真实 Windows EXE 首次动态导入 colorsys 失败，FakeAIProvider 修复后第二次 EXE 运行成功。见 phase5-acceptance.json。真实 AI 账号未配置/未调用。
+
+## Phase 6 验收记录（2026-09-17）
+
+TODO → IN_PROGRESS → VERIFYING → CLOSED。51 项测试通过，包括三类通知、Feishu 请求契约与通知故障隔离。真实 Windows 失败→修复→成功同时触发 FakeNotifier 的首次失败与修复成功事件，见 phase6-acceptance.json。未配置/未发送真实飞书 Webhook。
