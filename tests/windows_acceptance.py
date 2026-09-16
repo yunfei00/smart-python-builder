@@ -56,7 +56,7 @@ def phase2():
     assert result.success, f"{result.error}: {result.log_file}"
     notes = verify_executable(result.artifact, expected="metadata-ok")
     records.append(dict(case="pyproject-project", status="PASS", build_id=result.build_id, artifact=str(result.artifact), notes=notes))
-    output = root / "docs" / "phase2-acceptance.json"
+    output = root / "docs" / (sys.argv[1] if len(sys.argv) > 1 else "phase2-acceptance.json")
     output.write_text(json.dumps(records, indent=2), encoding="utf-8")
 
 

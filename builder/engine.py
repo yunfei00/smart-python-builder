@@ -5,6 +5,7 @@ import subprocess
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from .models import BuildPlan
 
 
 @dataclass(slots=True)
@@ -14,6 +15,7 @@ class BuildRequest:
     windowed: bool = False
     app_name: str | None = None
     entry_point: Path | None = None
+    plan: BuildPlan | None = None
 
 
 @dataclass(slots=True)
@@ -53,6 +55,9 @@ class BuildEngine:
 
         try:
             entry = self._copy_source(source, request.entry_point, project_dir)
+            if request.plan:
+                request.plan.validate(project_dir)
+                (workspace / "plan.json").write_text(request.plan.to_json(), encoding="utf-8")
             # Keep uploaded metadata intact; the build environment lives one level
             # above the copied project and never installs the project itself.
             self._run(["uv", "init", "--bare", "--no-workspace"], workspace, log_file)
@@ -60,8 +65,19 @@ class BuildEngine:
                 self._run(["uv", "add", *request.packages], workspace, log_file)
             self._run(["uv", "add", "--dev", "pyinstaller"], workspace, log_file)
 
-            command = [str(workspace / ".venv" / "Scripts" / "pyinstaller.exe"), "--noconfirm", "--clean", "--onefile"]
-            if request.windowed:
+            plan = request.plan
+            mode = plan.mode if plan else "onefile"
+            command = [str(workspace / ".venv" / "Scripts" / "pyinstaller.exe"), "--noconfirm", "--clean", f"--{mode}"]
+            if plan:
+                for value in plan.hidden_imports:
+                    command.extend(["--hidden-import", value])
+                for value in plan.collect_all:
+                    command.extend(["--collect-all", value])
+                for source_path, destination in plan.data_files:
+                    command.extend(["--add-data", f"{source_path};{destination}"])
+                command.extend(plan.pyinstaller_args)
+            is_windowed = plan.app_type == "gui" if plan else request.windowed
+            if is_windowed:
                 command.append("--windowed")
             if request.app_name:
                 command.extend(["--name", request.app_name])
@@ -69,7 +85,7 @@ class BuildEngine:
             self._run(command, project_dir, log_file)
 
             exe_name = request.app_name or entry.stem
-            artifact = project_dir / "dist" / f"{exe_name}.exe"
+            artifact = project_dir / "dist" / (exe_name if mode == "onedir" else f"{exe_name}.exe")
             if not artifact.exists():
                 raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
             return BuildResult(build_id, True, workspace, artifact, log_file)
