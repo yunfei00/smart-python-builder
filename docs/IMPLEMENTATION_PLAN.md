@@ -23,7 +23,7 @@
 
 ## Phase 1 — 基础构建引擎
 
-**状态：IN_PROGRESS**
+**状态：CLOSED**
 
 目标：先不做 Web、AI、飞书，跑通 `Python → uv → 独立环境 → PyInstaller → Windows EXE`。
 
@@ -38,7 +38,7 @@
 
 ## Phase 2 — 项目分析与依赖识别
 
-**状态：TODO**
+**状态：CLOSED**
 
 目标：支持单 `.py` 和项目文件夹，自动分析依赖和入口。
 
@@ -120,3 +120,6 @@ AI 输入包括项目结构、代码分析、依赖、经验库、Build Plan、�
 ## 当前执行点
 
 当前只执行 **Phase 1**。Phase 1 验收并 `CLOSED` 后，才启动 Phase 2。
+## Phase 2 验收记录（2026-09-17）
+
+状态流转：TODO → IN_PROGRESS → VERIFYING → CLOSED。完整 pytest 15 项通过。OpenCV EXE 退出码 0、输出图像尺寸正确；PySide6 多文件 EXE 启动后持续运行 10 秒，由测试关闭进程树；带 pyproject.toml 的项目构建并运行成功。Build ID 和产物见 phase2-acceptance.json。修复元数据优先级、构建环境与上传项目元数据冲突，以及旧测试脚本兼容性。

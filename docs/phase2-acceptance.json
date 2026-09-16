@@ -1,0 +1,23 @@
+[
+  {
+    "case": "opencv_app",
+    "status": "PASS",
+    "build_id": "823503225a684d1ab3a6bf2e2390cf5d",
+    "artifact": "D:\\code_2026\\smart-python-builder\\workspace\\823503225a684d1ab3a6bf2e2390cf5d\\project\\dist\\phase2-opencv_app.exe",
+    "notes": "opencv 5.0.0 shape (120, 240, 3)"
+  },
+  {
+    "case": "pyside_project",
+    "status": "PASS",
+    "build_id": "2f2fcef1857e4391a255ec7979c2c319",
+    "artifact": "D:\\code_2026\\smart-python-builder\\workspace\\2f2fcef1857e4391a255ec7979c2c319\\project\\dist\\phase2-pyside_project.exe",
+    "notes": "GUI process remained alive for 10 seconds; test process tree stopped"
+  },
+  {
+    "case": "pyproject-project",
+    "status": "PASS",
+    "build_id": "82a3738b0d1e4fc0b64501aeddd9b6d6",
+    "artifact": "D:\\code_2026\\smart-python-builder\\workspace\\82a3738b0d1e4fc0b64501aeddd9b6d6\\project\\dist\\phase2-metadata.exe",
+    "notes": "Actual EXE exit 0; stdout metadata-ok"
+  }
+]

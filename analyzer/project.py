@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from .dependencies import imports_from_project, split_imports
@@ -52,15 +51,14 @@ def _requirements(path: Path) -> list[str]:
     return packages
 
 
-def _pyproject_dependencies(path: Path) -> list[str]:
+def _pyproject_dependencies(path: Path) -> list[str] | None:
     try:
         import tomllib
         data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
-        deps = data.get("project", {}).get("dependencies", [])
-        return [str(dep) for dep in deps if isinstance(dep, str)]
-    except Exception:
-        # Keep analysis usable; AST remains the safe fallback when metadata is malformed.
-        return []
+        deps = data.get("project", {}).get("dependencies")
+        return deps if isinstance(deps, list) and all(isinstance(dep, str) for dep in deps) else None
+    except (OSError, ValueError):
+        return None
 
 
 def analyze_project(source: Path | str) -> ProjectAnalysis:
@@ -90,20 +88,19 @@ def analyze_project(source: Path | str) -> ProjectAnalysis:
 
     pyproject = root / "pyproject.toml"
     requirements = root / "requirements.txt"
-    if pyproject.exists():
-        packages = _pyproject_dependencies(pyproject)
-        if packages:
-            dependency_source = "pyproject.toml"
-        else:
-            packages = resolve_packages(third_party)
-            dependency_source = "ast"
-            warnings.append("pyproject.toml has no readable [project].dependencies; used AST fallback")
+    declared = _pyproject_dependencies(pyproject) if pyproject.exists() else None
+    if declared is not None:
+        packages = declared
+        dependency_source = "pyproject.toml"
     elif requirements.exists():
         packages = _requirements(requirements)
         dependency_source = "requirements.txt"
     else:
         packages = resolve_packages(third_party)
         dependency_source = "ast"
+
+    if pyproject.exists() and declared is None:
+        warnings.append(f"pyproject.toml has no readable [project].dependencies; used {dependency_source} fallback")
 
     if source.is_dir() and not candidates:
         warnings.append("No conventional entry point found; select an entry file manually")

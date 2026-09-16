@@ -53,12 +53,14 @@ class BuildEngine:
 
         try:
             entry = self._copy_source(source, request.entry_point, project_dir)
-            self._run(["uv", "init", "--bare", "--no-workspace"], project_dir, log_file)
+            # Keep uploaded metadata intact; the build environment lives one level
+            # above the copied project and never installs the project itself.
+            self._run(["uv", "init", "--bare", "--no-workspace"], workspace, log_file)
             if request.packages:
-                self._run(["uv", "add", *request.packages], project_dir, log_file)
-            self._run(["uv", "add", "--dev", "pyinstaller"], project_dir, log_file)
+                self._run(["uv", "add", *request.packages], workspace, log_file)
+            self._run(["uv", "add", "--dev", "pyinstaller"], workspace, log_file)
 
-            command = ["uv", "run", "pyinstaller", "--noconfirm", "--clean", "--onefile"]
+            command = [str(workspace / ".venv" / "Scripts" / "pyinstaller.exe"), "--noconfirm", "--clean", "--onefile"]
             if request.windowed:
                 command.append("--windowed")
             if request.app_name:

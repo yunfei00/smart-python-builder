@@ -53,6 +53,7 @@ def test_requirements_has_priority(tmp_path):
 def test_pyproject_has_priority(tmp_path):
     write(tmp_path / "main.py", "import requests\n")
     write(tmp_path / "pyproject.toml", '[project]\nname="demo"\nversion="0.1.0"\ndependencies=["requests>=2", "pandas"]\n')
+    write(tmp_path / "requirements.txt", "Pillow\n")
     result = analyze_project(tmp_path)
     assert result.dependency_source == "pyproject.toml"
     assert result.packages == ["requests>=2", "pandas"]
@@ -89,3 +90,28 @@ def test_smart_builder_accepts_explicit_entry_without_building(tmp_path, monkeyp
     result = builder.build(tmp_path, entry_point="main.py")
     assert result.analysis.packages == ["requests"]
     assert captured["request"].entry_point == (tmp_path / "main.py").resolve()
+
+
+def test_empty_pyproject_dependencies_are_authoritative(tmp_path):
+    write(tmp_path / "main.py", "import requests\n")
+    write(tmp_path / "pyproject.toml", "[project]\ndependencies=[]\n")
+    write(tmp_path / "requirements.txt", "Pillow\n")
+    result = analyze_project(tmp_path)
+    assert result.packages == []
+    assert result.dependency_source == "pyproject.toml"
+
+
+@pytest.mark.parametrize("metadata", ["broken [", "[project]\nname='demo'\n"])
+def test_unusable_pyproject_falls_back_to_requirements(tmp_path, metadata):
+    write(tmp_path / "main.py", "import requests\n")
+    write(tmp_path / "pyproject.toml", metadata)
+    write(tmp_path / "requirements.txt", "Pillow\n")
+    result = analyze_project(tmp_path)
+    assert result.packages == ["Pillow"]
+    assert result.dependency_source == "requirements.txt"
+
+
+def test_entry_cannot_escape_project(tmp_path):
+    write(tmp_path / "main.py", "print('ok')")
+    with pytest.raises(ValueError, match="inside"):
+        SmartBuilder(tmp_path / "workspace").build(tmp_path, entry_point="../outside.py")
