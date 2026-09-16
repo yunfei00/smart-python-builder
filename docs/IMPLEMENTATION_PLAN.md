@@ -90,7 +90,7 @@ AI 输入包括项目结构、代码分析、依赖、经验库、Build Plan、�
 
 ## Phase 7 — 经验沉淀与管理员审核
 
-**状态：TODO**
+**状态：CLOSED**
 
 目标：AI 修复成功后生成 Experience Candidate，不直接污染正式经验库。
 
@@ -139,3 +139,7 @@ TODO → IN_PROGRESS → VERIFYING → CLOSED。47 项测试通过；5 类修复
 ## Phase 6 验收记录（2026-09-17）
 
 TODO → IN_PROGRESS → VERIFYING → CLOSED。51 项测试通过，包括三类通知、Feishu 请求契约与通知故障隔离。真实 Windows 失败→修复→成功同时触发 FakeNotifier 的首次失败与修复成功事件，见 phase6-acceptance.json。未配置/未发送真实飞书 Webhook。
+
+## Phase 7 验收记录（2026-09-17）
+
+TODO → IN_PROGRESS → VERIFYING → CLOSED。55 项测试通过。真实 Windows 项目首次失败经 FakeAIProvider 修复成功并形成候选；经带凭证的管理员 HTTP 接口批准；第二个独立目录相同项目首次构建和 EXE 运行成功，AI 总调用数仍为 1。持久化、拒绝、非法编辑和不同源码不匹配均验证。见 phase7-acceptance.json。

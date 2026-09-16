@@ -5,20 +5,23 @@ import shutil
 import threading
 import uuid
 import zipfile
+import os
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Header, Depends
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from analyzer import analyze_project
 from builder import SmartBuilder
+from builder.learning import ExperienceStore
 from .uploads import MAX_UPLOAD, save_upload
 
 
-def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder):
+def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admin_token=None):
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     jobs = {}
@@ -34,6 +37,32 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder):
     app = FastAPI(lifespan=lifespan)
     app.state.jobs = jobs
     app.state.root = root
+    store = ExperienceStore(root / 'workspace' / 'experiences.sqlite3')
+    app.state.experience_store = store
+    admin_token = admin_token or os.environ.get('BUILDER_ADMIN_TOKEN')
+
+    def admin(authorization: str = Header(default='')):
+        if not admin_token:
+            raise HTTPException(503, '管理员入口未配置')
+        if not secrets.compare_digest(authorization, 'Bearer ' + admin_token):
+            raise HTTPException(401, '管理员凭证无效')
+
+    @app.get('/admin', response_class=HTMLResponse)
+    def admin_page(request: Request):
+        return templates.TemplateResponse(request=request, name='admin.html', context={})
+
+    @app.get('/api/admin/experiences', dependencies=[Depends(admin)])
+    def candidates():
+        return store.list()
+
+    @app.post('/api/admin/experiences/{identifier}', dependencies=[Depends(admin)])
+    def review(identifier: str, payload: dict):
+        try:
+            return store.review(identifier, payload.get('decision'), payload.get('repair_plan'))
+        except KeyError:
+            raise HTTPException(404, '经验不存在')
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, str(exc))
 
     def get_job(job_id):
         with lock:

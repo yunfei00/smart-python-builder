@@ -12,6 +12,7 @@ from .experience import ExperienceEngine
 from .models import BuildPlan
 from .ai import RepairPlan, configured_provider
 from .notifications import NotificationService
+from .learning import ExperienceStore
 
 
 @dataclass(slots=True)
@@ -22,6 +23,7 @@ class SmartBuildResult:
     status: str = "SUCCESS"
     attempts: list[dict] = field(default_factory=list)
     states: list[str] = field(default_factory=list)
+    candidate_id: str | None = None
 
 
 class EntryPointRequired(ValueError):
@@ -35,7 +37,7 @@ class EntryPointRequired(ValueError):
 class SmartBuilder:
     """Analyze an uploaded source and feed deterministic results into BuildEngine."""
 
-    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None):
+    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None, experience_store=None):
         self.engine = BuildEngine(workspace_root, timeout)
         self.experiences = ExperienceEngine()
         self.ai_provider = ai_provider if ai_provider is not None else configured_provider()
@@ -43,6 +45,8 @@ class SmartBuilder:
         self.on_state = None
         self.notifications = notifications or NotificationService.configured()
         self.details_url = os.environ.get('BUILDER_BASE_URL', 'http://127.0.0.1:8000')
+        self.experience_store = experience_store or ExperienceStore(self.engine.workspace_root / 'experiences.sqlite3')
+        self.experiences.store = self.experience_store
 
     def build(
         self,
@@ -117,15 +121,18 @@ class SmartBuilder:
                 attempts[-1]['diagnosis_error'] = str(exc)
                 transition('NEEDS_MANUAL_REVIEW')
                 break
+        candidate_id = None
+        if result.success and len(attempts) > 1:
+            candidate_id = self.experience_store.candidate(analysis, attempts, plan)
         if any('repair' in item or 'diagnosis_error' in item for item in attempts):
             self.notifications.emit(dict(event='AI Repair Success' if result.success else 'AI Repair Failed',
                 build_id=result.build_id, original_error=attempts[0]['error'], final_error=result.error,
                 attempts=[dict(number=item['number'], success=item['success']) for item in attempts],
                 diagnoses=[item.get('repair', item.get('diagnosis_error')) for item in attempts if 'repair' in item or 'diagnosis_error' in item],
-                status=states[-1], experience_candidate='pending creation' if result.success else None,
+                status=states[-1], experience_candidate=candidate_id,
                 details_url=self.details_url, approval_url=self.details_url.split('?')[0].rstrip('/')+'/admin'))
         (result.workspace / 'attempts.json').write_text(json.dumps(dict(states=states, attempts=attempts, notification_failures=self.notifications.failures), ensure_ascii=False, indent=2), encoding='utf-8')
-        return SmartBuildResult(analysis, result, plan, states[-1], attempts, states)
+        return SmartBuildResult(analysis, result, plan, states[-1], attempts, states, candidate_id)
 
     @staticmethod
     def _select_entry(analysis: ProjectAnalysis, entry_point: Path | str | None) -> Path:
