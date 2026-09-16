@@ -45,3 +45,19 @@ uv run uvicorn web.app:app --host 127.0.0.1 --port 8000
 
 打开 http://127.0.0.1:8000，上传 .py 或 ZIP，选择入口并生成应用。
 后台复用 SmartBuilder；支持实时状态和日志、EXE 下载及 onedir ZIP 下载。
+
+## AI 诊断与受控修复
+
+配置 `BUILDER_AI_API_KEY`、`BUILDER_AI_MODEL`，可选
+`BUILDER_AI_BASE_URL`（默认 `https://api.openai.com/v1`）启用兼容接口。
+未配置时普通构建不调用外部 AI；测试使用 FakeAIProvider。
+实现参考 https://developers.openai.com/api/docs/guides/structured-outputs。
+
+AI 只能返回 RepairPlan JSON，所有字段与修改由 Builder 验证。
+允许添加/移除依赖、隐藏导入、收集包、项目内资源和受控参数；不接受命令、
+脚本或 runtime hook。每个任务最多两次 AI 修复，最终无法解决进入
+NEEDS_MANUAL_REVIEW，完整过程保存在 attempts.json。
+
+构建成功默认表示产物已生成。内部集成可提供 `artifact_validator` 回调，
+将实际 EXE 的运行错误纳入同一修复流程；此回调由运维代码提供，不能由 AI 指定。
+真实 Windows 修复验证：`uv run python tests/windows_ai_acceptance.py`。

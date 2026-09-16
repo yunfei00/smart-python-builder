@@ -1,0 +1,80 @@
+{
+  "status": "SUCCESS",
+  "states": [
+    "BUILDING",
+    "FAILED",
+    "AI_DIAGNOSING",
+    "AI_REPAIRING",
+    "REBUILDING",
+    "SUCCESS"
+  ],
+  "attempts": [
+    {
+      "number": 1,
+      "build_id": "e59715fadd254a7c95c03d563e244d90",
+      "success": false,
+      "error": "Traceback (most recent call last):\n  File \"main.py\", line 2, in <module>\n  File \"importlib\\__init__.py\", line 88, in import_module\n  File \"<frozen importlib._bootstrap>\", line 1387, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1324, in _find_and_load_unlocked\nModuleNotFoundError: No module named 'colorsys'\n[PYI-20864:ERROR] Failed to execute script 'main' due to unhandled exception!\n",
+      "plan": {
+        "entry_point": "main.py",
+        "dependencies": [],
+        "dependency_source": "ast",
+        "app_type": "console",
+        "mode": "onefile",
+        "hidden_imports": [],
+        "collect_all": [],
+        "data_files": [],
+        "pyinstaller_args": [],
+        "matched_experiences": [],
+        "decision_sources": {
+          "entry_point": "analysis/user selection",
+          "dependencies": "ast",
+          "mode": "user/default"
+        }
+      },
+      "repair": {
+        "root_cause": "Dynamic colorsys import missing",
+        "confidence": 0.99,
+        "changes": {
+          "add_dependencies": [],
+          "remove_dependencies": [],
+          "hidden_imports": [
+            "colorsys"
+          ],
+          "collect_all": [],
+          "data_files": [],
+          "pyinstaller_args": [],
+          "remove_pyinstaller_args": []
+        },
+        "retry": true
+      }
+    },
+    {
+      "number": 2,
+      "build_id": "5a84bf2fc16a4085b6cdc31537dea8ac",
+      "success": true,
+      "error": null,
+      "plan": {
+        "entry_point": "main.py",
+        "dependencies": [],
+        "dependency_source": "ast",
+        "app_type": "console",
+        "mode": "onefile",
+        "hidden_imports": [
+          "colorsys"
+        ],
+        "collect_all": [],
+        "data_files": [],
+        "pyinstaller_args": [],
+        "matched_experiences": [],
+        "decision_sources": {
+          "entry_point": "analysis/user selection",
+          "dependencies": "ast",
+          "mode": "user/default",
+          "repair": "validated AI repair plan"
+        }
+      }
+    }
+  ],
+  "artifact": "D:\\code_2026\\smart-python-builder\\workspace\\5a84bf2fc16a4085b6cdc31537dea8ac\\project\\dist\\main.exe",
+  "notes": "Real EXE failed with missing colorsys, FakeAIProvider supplied validated hidden import, rebuilt EXE exited 0"
+}
