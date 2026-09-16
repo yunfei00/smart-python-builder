@@ -5,7 +5,7 @@ uv --version
 python --version
 
 Write-Host "`n[1] Unit tests"
-python -m pytest tests/test_analyzer.py -q
+uv run --with pytest python -m pytest tests/test_analyzer.py -q
 
 Write-Host "`n[2] Analyze OpenCV project"
 python analyze.py tests/phase2_samples/opencv_app
