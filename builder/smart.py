@@ -6,12 +6,15 @@ from pathlib import Path
 from analyzer import ProjectAnalysis, analyze_project
 
 from .engine import BuildEngine, BuildRequest, BuildResult
+from .experience import ExperienceEngine
+from .models import BuildPlan
 
 
 @dataclass(slots=True)
 class SmartBuildResult:
     analysis: ProjectAnalysis
     build: BuildResult
+    plan: BuildPlan
 
 
 class EntryPointRequired(ValueError):
@@ -27,27 +30,35 @@ class SmartBuilder:
 
     def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900):
         self.engine = BuildEngine(workspace_root, timeout)
+        self.experiences = ExperienceEngine()
 
     def build(
         self,
         source: Path | str,
         *,
         entry_point: Path | str | None = None,
-        windowed: bool = False,
+        windowed: bool | None = None,
         app_name: str | None = None,
+        mode: str = "onefile",
+        plan: BuildPlan | None = None,
     ) -> SmartBuildResult:
         analysis = analyze_project(source)
         selected_entry = self._select_entry(analysis, entry_point)
+        plan = plan or self.experiences.plan(analysis, selected_entry, windowed=windowed, mode=mode)
+        plan.validate(analysis.project_root)
+        if (analysis.project_root / plan.entry_point).resolve() != selected_entry:
+            raise ValueError('Build Plan entry differs from selected entry')
         result = self.engine.build(
             BuildRequest(
                 source=analysis.source,
-                packages=analysis.packages,
+                packages=plan.dependencies,
                 windowed=windowed,
                 app_name=app_name,
                 entry_point=selected_entry,
+                plan=plan,
             )
         )
-        return SmartBuildResult(analysis, result)
+        return SmartBuildResult(analysis, result, plan)
 
     @staticmethod
     def _select_entry(analysis: ProjectAnalysis, entry_point: Path | str | None) -> Path:
