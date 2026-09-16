@@ -54,8 +54,9 @@ PROFILES = tuple(replace(profile, known_errors=(KnownError(
 
 
 class ExperienceEngine:
-    def __init__(self, profiles=PROFILES):
+    def __init__(self, profiles=PROFILES, store=None):
         self.profiles = profiles
+        self.store = store
 
     def diagnose(self, error: str) -> list[RepairRule]:
         return [known.repair for profile in self.profiles for known in profile.known_errors if known.pattern in error]
@@ -77,4 +78,4 @@ class ExperienceEngine:
         if windowed is not None:
             plan.app_type = 'gui' if windowed else 'console'
             plan.decision_sources['app_type'] = 'user'
-        return plan
+        return self.store.apply(analysis, plan) if self.store else plan

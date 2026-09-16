@@ -68,3 +68,14 @@ NEEDS_MANUAL_REVIEW，完整过程保存在 attempts.json。
 首次失败立即发送事件，AI 修复结束发送成功/最终失败、原始错误、诊断、修改与尝试记录。
 每次网络请求超时 5 秒，通知失败仅记录异常类型，不改变构建结果。
 未配置 Webhook 时不发送；FakeNotifier 用于本地验收。
+
+## 经验学习与审批
+
+修复成功自动生成 CANDIDATE，保存在 workspace/experiences.sqlite3。
+设置 `BUILDER_ADMIN_TOKEN` 后访问 `/admin`，输入管理员凭证查看、编辑批准或拒绝。
+没有配置凭证时审批 API 不开放。只有 APPROVED 经验进入 ExperienceEngine。
+默认匹配项目 Python 源码指纹、导入集合及依赖声明，避免把修复广泛应用到无关项目。
+跨不同目录的相同源码项目可复用批准经验。审批后不可原地再次修改；需要新的候选。
+
+`uv run python tests/windows_learning_acceptance.py` 验证真实 EXE 故障、修复、
+HTTP 批准、第二项目首次成功且不再次调用 AI 的完整闭环。
