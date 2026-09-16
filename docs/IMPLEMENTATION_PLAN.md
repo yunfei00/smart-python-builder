@@ -60,7 +60,7 @@
 
 ## Phase 4 — Web 使用界面
 
-**状态：TODO**
+**状态：CLOSED**
 
 目标：非开发人员通过浏览器完成上传、构建、下载。
 
@@ -127,3 +127,7 @@ AI 输入包括项目结构、代码分析、依赖、经验库、Build Plan、�
 ## Phase 3 验收记录（2026-09-17）
 
 TODO → IN_PROGRESS → VERIFYING → CLOSED。33 项 pytest 通过。结构化 BuildProfile / ExperienceEngine / KnownError / RepairRule / BuildPlan 已接入统一构建链路；11 类经验、序列化与受控参数校验完成。OpenCV、PySide6、pyproject 项目重新打包并启动通过，onedir JSON 资源项目运行通过。见 phase3-acceptance.json 和 phase3-resource-acceptance.json。
+
+## Phase 4 验收记录（2026-09-17）
+
+TODO → IN_PROGRESS → VERIFYING → CLOSED。37 项自动测试通过；本地 uvicorn 服务经 HTTP 上传、分析、构建、日志和下载完成，下载 EXE 运行退出 0，输出 web-build-ok。见 phase4-acceptance.json。界面使用 FastAPI/Jinja2/原生 JS，多入口明确选择，构建完全复用 SmartBuilder。

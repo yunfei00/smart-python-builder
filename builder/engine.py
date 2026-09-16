@@ -34,6 +34,7 @@ class BuildEngine:
     def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900):
         self.workspace_root = Path(workspace_root).resolve()
         self.timeout = timeout
+        self.on_created = None
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
     def build(self, request: BuildRequest) -> BuildResult:
@@ -52,6 +53,9 @@ class BuildEngine:
         project_dir = workspace / "project"
         workspace.mkdir(parents=True)
         log_file = workspace / "build.log"
+        log_file.touch()
+        if self.on_created:
+            self.on_created(build_id, log_file)
 
         try:
             entry = self._copy_source(source, request.entry_point, project_dir)

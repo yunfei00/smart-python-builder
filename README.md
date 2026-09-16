@@ -36,3 +36,12 @@ uv run --with pytest python -m pytest tests -q --basetemp .pytest-local-check
 
 Windows 构建验收记录位于 docs，记录 Build ID、实际产物和运行行为。
 具体阶段与验收标准见 [实施计划](docs/IMPLEMENTATION_PLAN.md)。
+
+## Web 界面
+
+```powershell
+uv run uvicorn web.app:app --host 127.0.0.1 --port 8000
+```
+
+打开 http://127.0.0.1:8000，上传 .py 或 ZIP，选择入口并生成应用。
+后台复用 SmartBuilder；支持实时状态和日志、EXE 下载及 onedir ZIP 下载。

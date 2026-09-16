@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "job_id": "1ea5a023a900443391935b4ab6c296c4",
+  "build_id": "04e5999d1f9b4cb3ac52c4cd65bf1a79",
+  "artifact": "D:\\code_2026\\smart-python-builder\\.pytest-tmp-web-download.exe",
+  "notes": "Live HTTP upload, build, log, download; EXE exit 0: web-build-ok\n"
+}
