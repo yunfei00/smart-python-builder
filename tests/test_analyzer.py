@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from analyzer import analyze_project, resolve_package
-from builder import EntryPointRequired, SmartBuilder
+from builder import EntryPointRequired, SmartBuilder, BuildResult
 
 
 def write(path: Path, text: str) -> None:
@@ -84,7 +84,7 @@ def test_smart_builder_accepts_explicit_entry_without_building(tmp_path, monkeyp
 
     def fake_build(request):
         captured["request"] = request
-        return object()
+        return BuildResult('test', True, tmp_path, tmp_path / 'main.exe', tmp_path / 'build.log')
 
     monkeypatch.setattr(builder.engine, "build", fake_build)
     result = builder.build(tmp_path, entry_point="main.py")

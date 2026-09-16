@@ -70,7 +70,7 @@
 
 ## Phase 5 — AI 自动诊断与修复
 
-**状态：TODO**
+**状态：CLOSED**
 
 目标：首次构建失败后 AI 自动诊断并生成结构化 Repair Plan，最多自动修复 2 次。
 
@@ -131,3 +131,7 @@ TODO → IN_PROGRESS → VERIFYING → CLOSED。33 项 pytest 通过。结构化
 ## Phase 4 验收记录（2026-09-17）
 
 TODO → IN_PROGRESS → VERIFYING → CLOSED。37 项自动测试通过；本地 uvicorn 服务经 HTTP 上传、分析、构建、日志和下载完成，下载 EXE 运行退出 0，输出 web-build-ok。见 phase4-acceptance.json。界面使用 FastAPI/Jinja2/原生 JS，多入口明确选择，构建完全复用 SmartBuilder。
+
+## Phase 5 验收记录（2026-09-17）
+
+TODO → IN_PROGRESS → VERIFYING → CLOSED。47 项测试通过；5 类修复输入、非法修复拒绝、两次重试上限、Provider HTTP 契约均验证。真实 Windows EXE 首次动态导入 colorsys 失败，FakeAIProvider 修复后第二次 EXE 运行成功。见 phase5-acceptance.json。真实 AI 账号未配置/未调用。

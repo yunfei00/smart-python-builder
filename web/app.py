@@ -47,6 +47,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder):
         try:
             builder = builder_factory(root / 'workspace')
             builder.engine.on_created = lambda build_id, log_file: job.update(build_id=build_id, log=str(log_file))
+            builder.on_state = lambda state: job.update(status=state)
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
             job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
             if result.build.success:
@@ -55,7 +56,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder):
                     artifact = Path(shutil.make_archive(str(artifact), 'zip', artifact.parent, artifact.name))
                 job.update(status='SUCCESS', artifact=str(artifact))
             else:
-                job.update(status='FAILED', error=result.build.error)
+                job.update(status=result.status, error=result.build.error, attempts=result.attempts)
         except Exception as exc:
             job.update(status='FAILED', error=str(exc))
         finally:
