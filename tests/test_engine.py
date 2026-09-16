@@ -37,3 +37,11 @@ def test_environment_is_outside_uploaded_metadata(tmp_path, monkeypatch):
     assert calls[0][1] == result.workspace
     assert (result.workspace / "project" / "pyproject.toml").read_text(encoding="utf-8") == metadata
     assert (result.workspace / "project" / "asset.json").is_file()
+
+
+def test_fake_success_without_artifact_fails(tmp_path,monkeypatch):
+    source=tmp_path/'main.py';source.write_text('print(1)')
+    engine=BuildEngine(tmp_path/'workspace')
+    monkeypatch.setattr(engine,'_run',lambda *args:None)
+    result=engine.build(BuildRequest(source))
+    assert not result.success and 'artifact is missing' in result.error

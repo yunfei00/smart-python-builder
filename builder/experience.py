@@ -5,6 +5,7 @@ from pathlib import Path
 
 from analyzer.models import ProjectAnalysis
 from .models import BuildPlan
+from analyzer.project import IGNORED_DIRS
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ PROFILES = (
     BuildProfile('tkinter', ('tkinter',), None, 'gui'),
     BuildProfile('opencv-python', ('cv2',), 'opencv-python'),
     BuildProfile('Pillow', ('PIL',), 'Pillow', hidden_imports=('PIL.Image',)),
-    BuildProfile('pyserial', ('serial',), 'pyserial'),
+    BuildProfile('pyserial', ('serial',), 'pyserial', hidden_imports=('serial.urlhandler.protocol_loop', 'serial.urlhandler.protocol_socket', 'serial.urlhandler.protocol_rfc2217')),
     BuildProfile('PyYAML', ('yaml',), 'PyYAML'),
 )
 
@@ -78,4 +79,15 @@ class ExperienceEngine:
         if windowed is not None:
             plan.app_type = 'gui' if windowed else 'console'
             plan.decision_sources['app_type'] = 'user'
+        if analysis.source.is_dir():
+            for path in analysis.project_root.rglob('*'):
+                relative = path.relative_to(analysis.project_root)
+                if any(part in IGNORED_DIRS or part.startswith('.pytest-tmp') for part in relative.parts[:-1]):
+                    continue
+                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {'.json','.png','.jpg','.jpeg','.gif','.ico','.csv','.yaml','.yml','.ui','.qss'}:
+                    item = [str(relative), str(relative.parent)]
+                    if item not in plan.data_files:
+                        plan.data_files.append(item)
+            if plan.data_files:
+                plan.decision_sources['data_files'] = 'project resource files'
         return self.store.apply(analysis, plan) if self.store else plan

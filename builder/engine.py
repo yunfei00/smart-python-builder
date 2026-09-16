@@ -3,9 +3,13 @@ from __future__ import annotations
 import shutil
 import subprocess
 import uuid
+import json
+import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from .models import BuildPlan
+from .execution import LocalWindowsBackend
 
 
 @dataclass(slots=True)
@@ -35,6 +39,8 @@ class BuildEngine:
         self.workspace_root = Path(workspace_root).resolve()
         self.timeout = timeout
         self.on_created = None
+        self.backend = LocalWindowsBackend()
+        self.min_free_bytes = 1024**3
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
     def build(self, request: BuildRequest) -> BuildResult:
@@ -47,6 +53,8 @@ class BuildEngine:
             raise ValueError("Source must be a Python file or project folder")
         if shutil.which("uv") is None:
             raise RuntimeError("uv was not found in PATH")
+        if request.app_name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}', request.app_name):
+            raise ValueError('Invalid application name')
 
         build_id = uuid.uuid4().hex
         workspace = self.workspace_root / build_id
@@ -54,10 +62,15 @@ class BuildEngine:
         workspace.mkdir(parents=True)
         log_file = workspace / "build.log"
         log_file.touch()
-        if self.on_created:
-            self.on_created(build_id, log_file)
-
+        self._deadline = time.monotonic() + self.timeout
+        marker = workspace / 'task.json'
+        marker.write_text(json.dumps(dict(status='BUILDING', build_id=build_id)), encoding='utf-8')
+        success = False
         try:
+            if self.on_created:
+                self.on_created(build_id, log_file)
+            if shutil.disk_usage(workspace).free < self.min_free_bytes:
+                raise RuntimeError('Insufficient disk space: at least 1 GiB required')
             entry = self._copy_source(source, request.entry_point, project_dir)
             if request.plan:
                 request.plan.validate(project_dir)
@@ -90,11 +103,17 @@ class BuildEngine:
 
             exe_name = request.app_name or entry.stem
             artifact = project_dir / "dist" / (exe_name if mode == "onedir" else f"{exe_name}.exe")
-            if not artifact.exists():
+            executable = artifact / f'{exe_name}.exe' if mode == 'onedir' else artifact
+            if not executable.is_file() or executable.stat().st_size == 0:
                 raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
+            success = True
             return BuildResult(build_id, True, workspace, artifact, log_file)
         except Exception as exc:
+            with log_file.open('a', encoding='utf-8') as log:
+                log.write('\nBUILD FAILED: ' + str(exc) + '\n')
             return BuildResult(build_id, False, workspace, None, log_file, str(exc))
+        finally:
+            marker.write_text(json.dumps(dict(status='SUCCESS' if success else 'FAILED', build_id=build_id, finished_at=time.time())), encoding='utf-8')
 
     def _copy_source(self, source: Path, requested_entry: Path | None, project_dir: Path) -> Path:
         if source.is_file():
@@ -103,10 +122,19 @@ class BuildEngine:
             shutil.copy2(source, entry)
             return entry
 
+        def ignore(directory, names):
+            ignored = set(shutil.ignore_patterns('.git', '.venv', 'venv', 'build', 'dist', '__pycache__', '.pytest_cache', '.pytest-tmp*', 'workspace', 'web-data')(directory, names))
+            for name in names:
+                path = Path(directory) / name
+                if path.resolve() == self.workspace_root:
+                    ignored.add(name)
+                elif name not in ignored and (path.is_symlink() or not path.resolve().is_relative_to(source)):
+                    raise ValueError('Project contains a link outside its source tree')
+            return ignored
         shutil.copytree(
             source,
             project_dir,
-            ignore=shutil.ignore_patterns(".git", ".venv", "venv", "build", "dist", "__pycache__", ".pytest_cache"),
+            ignore=ignore,
         )
         if requested_entry is None:
             raise ValueError("Project-folder builds require an entry_point")
@@ -124,15 +152,10 @@ class BuildEngine:
         with log_file.open("a", encoding="utf-8") as log:
             log.write("\n$ " + " ".join(command) + "\n")
             log.flush()
-            process = subprocess.run(
-                command,
-                cwd=cwd,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=self.timeout,
-                check=False,
-            )
-            log.write(f"\n[exit_code={process.returncode}]\n")
-            if process.returncode != 0:
-                raise RuntimeError(f"Command failed ({process.returncode}): {' '.join(command)}")
+            remaining = getattr(self, '_deadline', time.monotonic() + self.timeout) - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Build timeout exceeded')
+            returncode = self.backend.run(command, cwd, log, remaining)
+            log.write(f"\n[exit_code={returncode}]\n")
+            if returncode != 0:
+                raise RuntimeError(f"Command failed ({returncode}): {' '.join(command)}")

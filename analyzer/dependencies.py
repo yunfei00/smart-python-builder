@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import sys
+import tokenize
 from pathlib import Path
 
 
@@ -11,7 +12,8 @@ class DependencyAnalysisError(RuntimeError):
 
 def imports_from_file(path: Path) -> set[str]:
     try:
-        source = path.read_text(encoding="utf-8-sig")
+        with tokenize.open(path) as source_file:
+            source = source_file.read()
         tree = ast.parse(source, filename=str(path))
     except (OSError, UnicodeError, SyntaxError) as exc:
         raise DependencyAnalysisError(f"Cannot analyze {path}: {exc}") from exc
@@ -35,7 +37,7 @@ def imports_from_project(files: list[Path]) -> set[str]:
 
 def split_imports(imports: set[str], internal_modules: set[str]) -> tuple[set[str], set[str], set[str]]:
     stdlib = set(sys.stdlib_module_names)
-    stdlib_imports = imports & stdlib
+    stdlib_imports = (imports & stdlib) - internal_modules
     internal_imports = imports & internal_modules
     third_party = imports - stdlib_imports - internal_imports
     return stdlib_imports, internal_imports, third_party

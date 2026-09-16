@@ -7,6 +7,11 @@ import uuid
 import zipfile
 import os
 import secrets
+import time
+import asyncio
+import contextlib
+import re
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +23,9 @@ from fastapi.templating import Jinja2Templates
 from analyzer import analyze_project
 from builder import SmartBuilder
 from builder.learning import ExperienceStore
+from builder.maintenance import cleanup_workspaces
+from .security import RequestLimitsMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
 
 
@@ -29,12 +37,69 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     pool = ThreadPoolExecutor(max_workers=1)
     templates = Jinja2Templates(directory=str(Path(__file__).parent / 'templates'))
 
+    def persist(job):
+        with lock:
+            target = root / (job['id'] + '.json')
+            temporary = target.with_suffix('.tmp')
+            temporary.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding='utf-8')
+            temporary.replace(target)
+
+    for saved in root.glob('*.json'):
+        try:
+            job = json.loads(saved.read_text(encoding='utf-8'))
+            if saved.stem != job['id'] or len(job['id']) != 32:
+                continue
+            if (job['status'] != 'READY' and not job.get('terminal', True)) or job['status'] not in {'READY','SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED'}:
+                job.update(status='NEEDS_MANUAL_REVIEW', error='Service restarted while task was active', terminal=True)
+                build_id = job.get('build_id', '')
+                if re.fullmatch('[a-f0-9]{32}', build_id):
+                    marker = root / 'workspace' / build_id / 'task.json'
+                    if marker.is_file() and marker.resolve().is_relative_to(root):
+                        marker.write_text(json.dumps(dict(status='FAILED', build_id=build_id, finished_at=time.time(), error='Service restarted')), encoding='utf-8')
+                persist(job)
+            jobs[job['id']] = job
+        except (OSError, ValueError, KeyError):
+            continue
+
     @asynccontextmanager
     async def lifespan(app):
-        yield
-        pool.shutdown(wait=True)
+        retention = max(1, int(os.environ.get('BUILDER_RETENTION_DAYS', '7')))*86400
+        def cleanup():
+            cleanup_workspaces(root / 'workspace', retention_seconds=retention)
+            with lock:
+                for job in jobs.values():
+                    if not (job.get('terminal') or job['status']=='READY') or time.time()-job.get('created_at',time.time())<retention:
+                        continue
+                    target = root / 'uploads' / job['id']
+                    if re.fullmatch('[a-f0-9]{32}', job['id']) and target.exists() and not target.is_symlink() and target.resolve().parent == (root/'uploads').resolve():
+                        shutil.rmtree(target.resolve())
+                    job.update(status='EXPIRED', terminal=True)
+                    persist(job)
+        await asyncio.to_thread(cleanup)
+        async def scheduled_cleanup():
+            while True:
+                await asyncio.sleep(3600)
+                await asyncio.to_thread(cleanup)
+        maintenance = asyncio.create_task(scheduled_cleanup())
+        try:
+            yield
+        finally:
+            maintenance.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await maintenance
+            pool.shutdown(wait=True)
 
     app = FastAPI(lifespan=lifespan)
+    app.add_middleware(RequestLimitsMiddleware)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=os.environ.get('BUILDER_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver').split(','))
+
+    @app.middleware('http')
+    async def same_origin(request, call_next):
+        origin = request.headers.get('origin')
+        if request.method not in {'GET','HEAD','OPTIONS'} and origin and urlsplit(origin).netloc != request.headers.get('host'):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({'detail':'Cross-origin writes are disabled'}, status_code=403)
+        return await call_next(request)
     app.state.jobs = jobs
     app.state.root = root
     store = ExperienceStore(root / 'workspace' / 'experiences.sqlite3')
@@ -73,10 +138,17 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     def run_job(job_id, entry, mode):
         job = get_job(job_id)
         job['status'] = 'BUILDING'
+        persist(job)
         try:
             builder = builder_factory(root / 'workspace')
-            builder.engine.on_created = lambda build_id, log_file: job.update(build_id=build_id, log=str(log_file))
-            builder.on_state = lambda state: job.update(status=state)
+            def created(build_id, log_file):
+                job.update(build_id=build_id, log=str(log_file))
+                persist(job)
+            def state_changed(state):
+                job.update(status=state)
+                persist(job)
+            builder.engine.on_created = created
+            builder.on_state = state_changed
             builder.details_url += '/?job=' + job_id
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
             job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
@@ -90,7 +162,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         except Exception as exc:
             job.update(status='FAILED', error=str(exc))
         finally:
-            (root / f'{job_id}.json').write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding='utf-8')
+            job['terminal'] = True
+            persist(job)
 
     @app.get('/', response_class=HTMLResponse)
     def home(request: Request):
@@ -110,8 +183,9 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             raise HTTPException(400, str(exc)) from exc
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
-                   dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan)
+                   dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False)
         jobs[job_id] = job
+        persist(job)
         return job
 
     @app.get('/api/jobs/{job_id}/plan')
@@ -131,7 +205,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 raise HTTPException(409, '任务已开始')
             if entry not in job['entries'] or mode not in {'onefile', 'onedir'}:
                 raise HTTPException(400, '请选择有效入口和输出格式')
+            if sum(not item.get('terminal') and item['status'] != 'READY' for item in jobs.values()) >= 8:
+                raise HTTPException(429, '构建队列已满，请稍后重试')
             job['status'] = 'QUEUED'
+            persist(job)
             pool.submit(run_job, job_id, entry, mode)
         return {'id': job_id, 'status': 'QUEUED'}
 
@@ -151,6 +228,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         if job['status'] != 'SUCCESS' or not job.get('artifact'):
             raise HTTPException(409, '文件尚未生成')
         artifact = Path(job['artifact'])
+        if not artifact.resolve().is_relative_to(root) or not artifact.is_file():
+            raise HTTPException(410, '产物已过期或不可用')
         return FileResponse(artifact, filename=artifact.name)
 
     return app

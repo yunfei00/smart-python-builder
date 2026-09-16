@@ -47,3 +47,9 @@ def test_plan_rejects_unsafe_options(tmp_path, field, value):
     setattr(plan, field, value)
     with pytest.raises(ValueError):
         plan.validate(tmp_path)
+
+
+def test_pyserial_dynamic_protocols_are_collected(tmp_path):
+    entry=tmp_path/'main.py';entry.write_text('import serial')
+    plan=ExperienceEngine().plan(analyze_project(entry),entry)
+    assert 'serial.urlhandler.protocol_loop' in plan.hidden_imports
