@@ -1,0 +1,1 @@
+Phase 1 verification is intentionally PowerShell-first because the produced artifact must be a native Windows EXE.
