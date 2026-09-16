@@ -7,3 +7,5 @@ build/
 dist/
 *.spec
 .pytest-tmp*/
+web-data/
+.pytest-tmp*.exe
