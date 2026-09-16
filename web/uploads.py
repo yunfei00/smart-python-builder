@@ -9,10 +9,16 @@ MAX_UPLOAD = 20 * 1024 * 1024
 MAX_EXPANDED = 100 * 1024 * 1024
 
 
+def unsafe_component(name):
+    reserved = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1,10)), *(f'LPT{i}' for i in range(1,10))}
+    return (not name or name.endswith(('.', ' ')) or name.split('.')[0].upper() in reserved
+            or any(char in name for char in '<>:"|?*\x00') or any(ord(char) < 32 for char in name))
+
+
 def save_upload(name: str, data: bytes, target: Path) -> Path:
     if len(data) > MAX_UPLOAD:
         raise ValueError('上传超过 20 MB 限制')
-    if not name or '/' in name or '\\' in name or ':' in name:
+    if not name or '/' in name or '\\' in name or unsafe_component(name):
         raise ValueError('文件名无效')
     suffix = Path(name).suffix.lower()
     if suffix not in {'.py', '.zip'}:
@@ -28,10 +34,10 @@ def save_upload(name: str, data: bytes, target: Path) -> Path:
             raise ValueError('ZIP 解压后的内容过大')
         seen = set()
         for item in entries:
-            name = item.filename
+            name = item.orig_filename
             path = PurePosixPath(name)
             if (not name or '\\' in name or ':' in name or path.is_absolute() or '..' in path.parts
-                    or any(part.endswith(('.', ' ')) for part in path.parts)
+                    or any(unsafe_component(part) for part in path.parts)
                     or stat.S_ISLNK(item.external_attr >> 16)):
                 raise ValueError('ZIP 包含不安全路径')
             dest = target.joinpath(*path.parts)

@@ -100,7 +100,7 @@ AI 输入包括项目结构、代码分析、依赖、经验库、Build Plan、�
 
 ## Phase 8 — 稳定性、安全与最终验收
 
-**状态：TODO**
+**状态：CLOSED**
 
 实现：文件类型/大小限制、ZIP 安全解压和路径穿越防护、构建超时、AI 重试限制、磁盘/并发限制、日志管理、异常恢复、低权限 Build Worker、过期 workspace/artifact 自动清理。不可信用户场景需要更强 Windows 构建隔离。
 
@@ -143,3 +143,9 @@ TODO → IN_PROGRESS → VERIFYING → CLOSED。51 项测试通过，包括三�
 ## Phase 7 验收记录（2026-09-17）
 
 TODO → IN_PROGRESS → VERIFYING → CLOSED。55 项测试通过。真实 Windows 项目首次失败经 FakeAIProvider 修复成功并形成候选；经带凭证的管理员 HTTP 接口批准；第二个独立目录相同项目首次构建和 EXE 运行成功，AI 总调用数仍为 1。持久化、拒绝、非法编辑和不同源码不匹配均验证。见 phase7-acceptance.json。
+
+## Phase 8 验收记录（2026-09-17）
+
+TODO → IN_PROGRESS → VERIFYING → CLOSED。72 项 pytest 通过，21 项真实 Windows 验收全部 PASS（覆盖要求的 20 项并额外验证 PyYAML）。修复真实矩阵发现的 pyserial 动态协议隐藏导入；实现上传/ZIP/路径校验、请求限流、单工作队列、总构建超时与进程树终止、磁盘检查、状态持久化恢复、定期保留期清理，以及本地执行后端扩展接口。Web ZIP 多入口选择、自动资源打包、下载解压后 EXE 运行通过。详见 v1-acceptance.json、phase8-web-acceptance.json、OPERATIONS.md。
+
+**Smart Python Builder V1 = COMPLETE**。真实 AI 和飞书账号未调用，使用 Fake Provider 完成闭环验收；低权限独立账号部署与 VM 隔离边界见运维文档。

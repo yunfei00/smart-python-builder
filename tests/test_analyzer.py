@@ -115,3 +115,9 @@ def test_entry_cannot_escape_project(tmp_path):
     write(tmp_path / "main.py", "print('ok')")
     with pytest.raises(ValueError, match="inside"):
         SmartBuilder(tmp_path / "workspace").build(tmp_path, entry_point="../outside.py")
+
+
+def test_python_source_encoding_cookie(tmp_path):
+    source=tmp_path/'main.py'
+    source.write_bytes("# coding: cp1252\n# café\nimport json\n".encode('cp1252'))
+    assert analyze_project(source).packages==[]

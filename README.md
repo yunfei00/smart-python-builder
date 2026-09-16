@@ -79,3 +79,10 @@ NEEDS_MANUAL_REVIEW，完整过程保存在 attempts.json。
 
 `uv run python tests/windows_learning_acceptance.py` 验证真实 EXE 故障、修复、
 HTTP 批准、第二项目首次成功且不再次调用 AI 的完整闭环。
+
+## V1 运维与安全
+
+本工具定位为 trusted/internal Windows Builder。请参阅
+[部署与安全边界](docs/OPERATIONS.md) 了解低权限运行、超时、并发、保留期、
+恢复、凭证配置，以及未来隔离 Worker 扩展点。
+最终 Windows 验收：`uv run python tests/windows_v1_acceptance.py`。

@@ -7,13 +7,15 @@ from .models import ProjectAnalysis
 from .package_resolver import resolve_packages
 
 ENTRY_NAMES = ("main.py", "app.py", "run.py", "__main__.py")
-IGNORED_DIRS = {".git", ".venv", "venv", "build", "dist", "__pycache__", ".pytest_cache"}
+IGNORED_DIRS = {".git", ".venv", "venv", "build", "dist", "__pycache__", ".pytest_cache", "workspace", "web-data"}
 
 
 def _python_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for path in root.rglob("*.py"):
-        if not any(part in IGNORED_DIRS for part in path.relative_to(root).parts[:-1]):
+        if not any(part in IGNORED_DIRS or part.startswith('.pytest-tmp') for part in path.relative_to(root).parts[:-1]):
+            if path.is_symlink() or not path.resolve().is_relative_to(root):
+                raise ValueError('Project contains an external link')
             files.append(path)
     return sorted(files)
 
