@@ -112,3 +112,80 @@ green/blue background. Temporary viewport override was reset after checking.
   represented as a new v1.0.1 full matrix run.
 
 Development delivery only: **尚未 merge/tag**. No v1.0.1 Git tag or release created.
+
+
+## Notification & URL follow-up (2026-09-17)
+
+Baseline for this follow-up: `b90c440`, same development branch, clean on entry.
+Original 131 pytest cases remain unchanged; **41 new cases**, **172 passed, 0 failed**.
+No main merge, branch deletion, v1.0.1 tag or release.
+
+Root causes: SmartBuilder's first-success branch transitioned and returned without
+emitting a notification; `base_url` already existed but was excluded from editable
+settings, so deployments kept the loopback default unless an environment override
+was supplied. Web task IDs were already available and are now passed explicitly
+to a shared URL builder, rather than appended to mutable URL strings.
+
+Normal success emits Build Success once. Repair success emits exactly Build Failed
+then AI Repair Success. Exhausted/declined/invalid AI emits Build Failed then
+AI Repair Failed. Notification failure leaves a successful build successful.
+Base URL is saved in SQLite, normalized and validated, and reread for each new
+notification link. Environment override precedence is unchanged.
+
+New tests include URL persistence/reload, HTTP/HTTPS, slash/whitespace normalization,
+invalid scheme/query/fragment/credential/listening-address rejection, loopback
+warnings, live link refresh, correct Web Job ID versus Build ID, all notification
+sequences, secret redaction, disabled Feishu, HTTP/Web integration and unchanged
+Hosts/retention not triggering a restart warning for a Base URL-only change.
+
+Browser checks (isolated data, disposable password): default loopback produced the
+visible yellow warning; 0.0.0.0 was rejected by the server; LAN URL with extra slashes
+was normalized and survived reload; HTTPS domain accepted. Saving only the address
+showed immediate-effect text, not a restart requirement. No actual secrets were
+entered into the test page. Production settings were not overwritten.
+
+### Fresh Windows execution evidence
+
+The server used existing create_app/SmartBuilder/BuildEngine, bound to 0.0.0.0:8000.
+The explicit operator-selected LAN URL was http://192.168.3.10:8000; the application
+did not detect/guess an IP. HTTP uploads generated actual EXEs, which were downloaded
+and executed with expected stdout and exit code 0. An explicitly injected FakeAIProvider
+repaired a real dynamic-import colorsys failure; FakeNotifier captured event counts.
+The third case raised notifier exceptions deliberately. This is real packaging/runtime
+verification with offline external-service substitutes, not real Feishu delivery.
+
+| Case | Result | Web Job ID | Build ID | Captured notifications |
+|---|---|---|---|---|
+| normal | PASS | `e8c79b4b110148ee90b6aad4c3950075` | `cac75bc258954cb282185bf64c120865` | Build Success |
+| repair | PASS | `aae8f010eb404248a64f1f437b04bc91` | `259aec884e254ee5aa9f481e4fca9aed` | Build Failed, AI Repair Success |
+| notifier-outage | PASS | `8babf5005141422f8364ded54bfec931` | `11438c7f9e5e49f88b9ceee5c46014bd` | send failed; SUCCESS retained |
+
+All task links used LAN Base URL plus the correct Web Job ID. Both page and job API
+were fetched successfully via that LAN address **from the same host**. AI candidate
+approval URL was checked against the LAN `/admin` address. Artifacts and full details
+are recorded in [notification-url-windows.json](notification-url-windows.json).
+
+Reproduce: `uv run python tests/windows_notification_url_acceptance.py http://<LAN-IP>:8000`.
+Use a free port 8000 and explicitly provide the intended LAN IP; this offline harness
+writes only its UUID `.pytest-tmp-notification-*` data. It starts and stops its own
+single-process Web test server and does not modify the firewall.
+
+### Outstanding real environment verification
+
+The current repository SettingsStore had no real AI Key/Model or Feishu Webhook.
+The user's separate successful deployment credentials were not located or copied;
+no credential value was requested in chat. Therefore:
+
+- Ordinary-success **real Feishu receipt: NOT VERIFIED WITH REAL CREDENTIALS**.
+- Real AI repair plus Feishu receipt: **NOT VERIFIED WITH REAL CREDENTIALS**.
+- Phone/another physical LAN PC link click: **NOT VERIFIED**. Same-host LAN HTTP
+  success is not evidence of another device's network/firewall reachability.
+- Actual recipient delivery, HTTPS domain deployment and durable exactly-once
+  delivery across crashes are not claimed. The implementation makes one emit per
+  specified state transition and keeps notification exceptions isolated.
+
+README and OPERATIONS explain Listening Host (interfaces), Allowed Hosts (request
+Host headers), and Base URL (outgoing links). Only local development defaults and
+examples retain loopback literals; generated notification links read SettingsStore.
+Feishu output uses a metadata allowlist and configured-secret redaction; raw diagnosis
+JSON is omitted. No actual secret was added to source, tests or acceptance records.

@@ -12,6 +12,7 @@ import sqlite3
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
+from .urls import normalize_base_url, local_base_url
 
 DEFAULTS = dict(allowed_hosts='127.0.0.1,localhost,testserver', retention_days=7,
                 ai_enabled=False, ai_provider='openai-compatible',
@@ -19,8 +20,12 @@ DEFAULTS = dict(allowed_hosts='127.0.0.1,localhost,testserver', retention_days=7
                 feishu_enabled=False, feishu_webhook='', cookie_secure=False,
                 base_url='http://127.0.0.1:8000', admin_token='')
 SECRET_FIELDS = {'ai_api_key', 'feishu_webhook', 'admin_token'}
-EDITABLE = set(DEFAULTS) - {'cookie_secure', 'base_url', 'admin_token'}
+EDITABLE = set(DEFAULTS) - {'cookie_secure', 'admin_token'}
 MASK = '********'
+
+
+def notification_secrets(values):
+    return [values.get(key, '') for key in SECRET_FIELDS] + [os.environ.get('BUILDER_ADMIN_PASSWORD', '')]
 
 
 def allowed_hosts(raw):
@@ -37,6 +42,7 @@ def allowed_hosts(raw):
 
 def validate(values):
     values = dict(values)
+    values['base_url'] = normalize_base_url(values['base_url'])
     values['allowed_hosts'] = ','.join(allowed_hosts(values['allowed_hosts']))
     if type(values['retention_days']) is not int or not 1 <= values['retention_days'] <= 3650:
         raise ValueError('保留天数必须为 1–3650 的整数')
@@ -142,6 +148,7 @@ class SettingsStore:
         values, overridden = environment_settings(self.saved())
         result = {key: (MASK if values[key] else '') if key in SECRET_FIELDS else values[key] for key in EDITABLE}
         result['overridden'] = [key for key in overridden if key in EDITABLE]
+        result['base_url_local'] = local_base_url(values['base_url'])
         return result
 
     def merged(self, payload):

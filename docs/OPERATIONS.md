@@ -147,3 +147,41 @@ DPAPI does not change the trusted/internal deployment boundary.
 
 See [v1.0.1 acceptance](V1_0_1_ACCEPTANCE.md). Real AI and Feishu credentials were
 not supplied: **NOT VERIFIED WITH REAL CREDENTIALS**. No firewall changes were made.
+
+## Notification and external URL follow-up
+
+Configure **Builder 访问地址** (`base_url`) under Builder settings, for example
+`http://192.168.1.105:8000` or `https://builder.example.com`. Explicit
+`BUILDER_BASE_URL` still overrides SQLite; remove it and restart if daily management
+should use the UI. Base URL itself needs no restart: each generated notification
+reads the effective value, including later notifications of an active build.
+Only changes to Hosts/retention need restart; saving unchanged values with a new
+Base URL does not falsely require restart.
+
+Listening Host selects interfaces (`0.0.0.0` binds all); Allowed Hosts validates
+request Host headers; Base URL generates externally clickable links. None guesses
+or changes the others. Choose the real LAN adapter IPv4 explicitly, configure
+Allowed Hosts and appropriate private-network firewall access separately. A Base
+URL is not a connectivity guarantee or a substitute for firewall/proxy setup.
+Reject unspecified addresses 0.0.0.0/::, non-HTTP(S), query/fragment and embedded
+credentials. Loopback remains valid for development with a yellow UI warning.
+
+`builder/urls.py` generates both task and approval URLs. Web assigns its public
+job ID to SmartBuilder, not the per-attempt BuildEngine ID. Tasks use
+`{base_url}/?job={web_job_id}`; candidate approvals use `{base_url}/admin`.
+CLI has no Web Job ID, so its details link is the configured service home.
+
+First-attempt success emits **Build Success** once, after success and any operator
+artifact validation. First failure emits **Build Failed** once. An AI attempt ends
+with **AI Repair Success** or **AI Repair Failed**, never an additional Build Success.
+No AI configured means no AI event. Notification errors remain isolated and do not
+change the build result. Disabled Feishu produces no automatic request.
+These are event-emission counts within a run, not a durable exactly-once delivery
+protocol: there is no outbox/retry queue or proof of recipient reading.
+
+Feishu renders an allowlisted, human-readable metadata summary instead of arbitrary
+error/diagnostic/configuration JSON. NotificationService redacts configured sensitive
+values and omits secret-named fields. No actual credentials were added to tests or
+Git; generated random test sentinels exercise redaction. Uploaded code and local
+logs remain inside the existing trusted-worker boundary; this is not a general
+secret scanner for arbitrary project content.

@@ -3,6 +3,7 @@
 {% block content %}
 <p id="overrides" class="notice" hidden></p>
 <section><h2>Builder 服务</h2><form id="builder-settings" class="field">
+<label for="base_url">Builder 访问地址</label><input id="base_url" name="base_url" type="url" required placeholder="http://192.168.1.105:8000"><small>用于飞书通知中的任务详情、管理员审批等链接。请填写其他设备能够访问 Smart Python Builder 的地址。示例：http://192.168.1.105:8000 或 https://builder.example.com。保存后用于后续通知，无需重启；Listening Host 与 Allowed Hosts 不会随之修改。</small><p id="base-url-warning" role="status"></p>
 <label for="allowed_hosts">Allowed Hosts · 访问地址</label><input id="allowed_hosts" name="allowed_hosts" required><small>允许访问 Builder 的主机地址，多个地址用逗号分隔。例如 localhost,127.0.0.1,192.168.1.100。局域网测试可使用 *；这不是客户端访问权限控制。</small>
 <label for="retention_days">Retention Days · 文件保留天数</label><input id="retention_days" name="retention_days" type="number" min="1" max="3650" required><small>构建文件保留多少天后自动清理。以上两项保存后需要重启服务。</small>
 <div class="actions"><button>保存 Builder 设置</button></div><p class="message" role="status"></p></form></section>
@@ -14,7 +15,7 @@
 <label for="ai_api_key">API Key · 访问密钥</label><div class="secret-row"><span id="ai_api_key-status"></span><button type="button" class="secondary" data-replace="ai_api_key">更换 API Key</button></div><input id="ai_api_key" name="ai_api_key" type="password" autocomplete="new-password" placeholder="输入新的 API Key" hidden disabled><small>旧密钥永不显示。未填写新密钥时保留已有配置。</small>
 <div class="actions"><button type="button" id="test-ai" class="secondary">测试 AI 连接</button><button>保存 AI 设置</button></div><small>测试使用当前表单与已保存密钥，发送最小请求；环境变量覆盖仍优先。</small><p class="message" role="status"></p></form></section>
 <section><h2>飞书通知</h2><form id="feishu-settings" class="field">
-<label><input id="feishu_enabled" name="feishu_enabled" type="checkbox"> 启用飞书通知</label><small>构建失败或 AI 修复完成时发送通知。通知失败不会影响构建。</small>
+<label><input id="feishu_enabled" name="feishu_enabled" type="checkbox"> 启用飞书通知</label><small>首次构建成功、首次失败及 AI 修复结束时发送通知，修复成功不会重复发送普通成功通知。通知失败不会影响构建。</small>
 <label for="feishu_webhook">Webhook · 机器人地址</label><div class="secret-row"><span id="feishu_webhook-status"></span><button type="button" class="secondary" data-replace="feishu_webhook">更换 Webhook</button></div><input id="feishu_webhook" name="feishu_webhook" type="password" autocomplete="new-password" placeholder="输入新的 Webhook" hidden disabled><small>机器人地址属于密钥，未填写新地址时保留已有配置。</small>
 <div class="actions"><button type="button" id="test-feishu" class="secondary">发送测试消息</button><button>保存飞书设置</button></div><small>将向当前配置发送带时间的“飞书通知测试成功”消息。</small><p class="message" role="status"></p></form></section>
 {% endblock %}

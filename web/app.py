@@ -155,7 +155,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 persist(job)
             builder.engine.on_created = created
             builder.on_state = state_changed
-            builder.details_url += '/?job=' + job_id
+            builder.web_job_id = job_id
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
             job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
             if result.build.success:

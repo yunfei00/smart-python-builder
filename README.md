@@ -79,7 +79,8 @@ uv run uvicorn web.app:app --host 127.0.0.1 --port 8000
 
 登录后打开 [系统设置](http://127.0.0.1:8000/admin/settings)：
 
-- **Builder 服务**：Allowed Hosts 填客户端访问的主机名/IP，可用逗号分隔；文件保留天数默认 7。
+- **Builder 服务**：Builder 访问地址填写其他设备能访问的 URL，用于任务与审批链接，保存后后续通知立即生效（环境变量覆盖优先）。支持 HTTP/HTTPS，去空白与末尾斜杠；禁止查询、片段、URL 凭证和 `0.0.0.0`/`::`。本机 localhost/127 地址允许保存，但页面显示黄色提醒。
+  Allowed Hosts 填客户端访问的主机名/IP，可用逗号分隔；文件保留天数默认 7。
   两项保存后页面提示“保存成功，重启 Smart Python Builder 后生效。”
 - **AI 服务**：选择 OpenAI compatible，填 API 基础地址（不含 `/chat/completions`）、模型，
   点击“更换 API Key”输入密钥。可先“测试 AI 连接”，再启用修复并保存。
@@ -89,7 +90,8 @@ uv run uvicorn web.app:app --host 127.0.0.1 --port 8000
   发送超时 5 秒，通知失败不改变构建结果；暂不支持机器人签名 secret。
 
 密钥与 Webhook 只显示“已配置：********”；留空或提交遮罩会保留旧值。
-测试使用当前表单和已保存密钥，不自动保存；保存后用于下一次新构建，正在运行的构建保持原配置。
+测试使用当前表单和已保存密钥，不自动保存；AI/飞书服务保存后用于下一次新构建。
+Builder 访问地址在每次生成通知链接时重新读取，正在运行的构建后续通知也会使用新地址。
 AI/飞书从与后台相同的 SettingsStore 读取，生产没有可选的 Fake Provider。
 
 配置统一保存在工作目录的 `web-data/settings.sqlite3`，Web 与默认 CLI 共用这份配置。
@@ -107,7 +109,7 @@ AI/飞书从与后台相同的 SettingsStore 读取，生产没有可选的 Fake
 | `BUILDER_AI_MODEL` | 服务商模型，无默认模型 |
 | `BUILDER_FEISHU_ENABLED` | `true` / `false` |
 | `BUILDER_FEISHU_WEBHOOK` | 飞书机器人地址 |
-| `BUILDER_BASE_URL` | 通知中的 Builder 地址，默认 `http://127.0.0.1:8000` |
+| `BUILDER_BASE_URL` | 覆盖后台 Builder 访问地址；默认 `http://127.0.0.1:8000` |
 | `BUILDER_COOKIE_SECURE` | HTTPS 部署设 `true`，局域网 HTTP 默认 `false` |
 | `BUILDER_ADMIN_TOKEN` | 原有自动化 Bearer API 兼容；普通管理员无需填写 |
 
@@ -116,8 +118,31 @@ AI/飞书从与后台相同的 SettingsStore 读取，生产没有可选的 Fake
 AI 只能返回经过校验的结构化 RepairPlan，不得执行任意 shell、脚本或 runtime hook；最多修复两次。
 诊断会向配置的 AI 服务发送项目结构、依赖、计划和有长度限制的日志，请确认项目适合发送。
 
+## 构建通知行为
+
+| 场景 | 通知顺序 |
+|---|---|
+| 首次构建成功 | Build Success（一次） |
+| 首次失败，无 AI | Build Failed（一次） |
+| 首次失败，AI 修复成功 | Build Failed → AI Repair Success，不额外发 Build Success |
+| 首次失败，AI 放弃/异常/重试耗尽 | Build Failed → AI Repair Failed，不发 Build Success |
+
+通知异常只记录异常类型，不把成功构建变成失败；禁用飞书不发送自动通知。
+飞书以中文摘要显示项目、Build ID、入口、尝试次数、状态和链接，不原样发送诊断 JSON。
+任务链接使用 `{base_url}/?job={Web Job ID}`；审批链接为 `{base_url}/admin`，登录后审核候选。
+Web Job ID 与每次打包产生的 Build ID 不同，不能互换。
+
 ## 局域网访问
 
+三个地址概念各司其职，不自动互相修改：
+
+| 配置 | 含义 | 示例 |
+|---|---|---|
+| Listening Host | uvicorn 监听哪些网络接口 | `--host 0.0.0.0` |
+| Allowed Hosts | 允许哪些请求 Host Header | `localhost,127.0.0.1,192.168.1.100` |
+| Builder Base URL | 飞书等通知中的可点击链接前缀 | `http://192.168.1.100:8000` |
+
+在系统设置中填写实际 **Builder 访问地址**，不要填监听地址；程序不会猜测 LAN IP。
 在 Allowed Hosts 中加入 Builder 主机的真实 IPv4，保存后重启；也可在启动终端设置：
 
 ```powershell
