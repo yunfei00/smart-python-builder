@@ -29,6 +29,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
 
 
+def _allowed_hosts() -> list[str]:
+    raw = os.environ.get('BUILDER_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver')
+    hosts = [host.strip() for host in raw.split(',') if host.strip()]
+    return hosts or ['127.0.0.1', 'localhost', 'testserver']
+
+
 def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admin_token=None):
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -91,7 +97,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     app = FastAPI(lifespan=lifespan)
     app.add_middleware(RequestLimitsMiddleware)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=os.environ.get('BUILDER_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver').split(','))
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts())
 
     @app.middleware('http')
     async def same_origin(request, call_next):
@@ -181,8 +187,6 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             builder = builder_factory(root / 'workspace')
             plan = builder.experiences.plan(analysis, analysis.entry_point).to_dict() if analysis.entry_point else None
         except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
-            # Rejected uploads have no job record, so retention cannot discover
-            # their partial files. Remove only this request's owned directory.
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
                 shutil.rmtree(upload_dir.resolve())
             raise HTTPException(400, str(exc)) from exc
