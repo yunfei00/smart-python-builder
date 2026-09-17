@@ -1,4 +1,4 @@
-# Smart Python Builder 1.0.0
+# Smart Python Builder 1.0.1
 
 Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应用。
 面向可信内部用户：使用者通过网页上传、选择入口、生成并下载 EXE 或 ZIP，
@@ -61,46 +61,101 @@ Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应
 `requirements.txt` → AST import 推导。V1 的 requirements 支持普通 PyPI 依赖声明，
 不支持递归 `-r`、自定义索引、VCS 或本地路径依赖。动态导入不能完全依靠 AST 识别。
 
-## 配置 AI（可选）
+## 管理员初始化与登录
 
-未配置时不调用外部 AI，也不会自动启用 FakeAIProvider。生产配置读取环境变量：
+首次启动前，在同一个 PowerShell 中设置自己的管理员密码：
+
+```powershell
+$env:BUILDER_ADMIN_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'Admin password' -AsSecureString)).Password
+uv run uvicorn web.app:app --host 127.0.0.1 --port 8000
+```
+
+打开 [管理员登录](http://127.0.0.1:8000/admin/login)，输入密码，进入经验管理或系统设置。
+没有初始密码时页面提示尚未初始化；没有默认账号/密码。密码仅在第一次初始化时读取，
+以随机盐 scrypt 哈希保存。后续改变环境变量不会覆盖已有密码；初始化后可从启动环境移除。
+点击“退出登录”立即撤销当前会话；会话八小时过期。
+
+## 系统设置、AI 与飞书
+
+登录后打开 [系统设置](http://127.0.0.1:8000/admin/settings)：
+
+- **Builder 服务**：Builder 访问地址填写其他设备能访问的 URL，用于任务与审批链接，保存后后续通知立即生效（环境变量覆盖优先）。支持 HTTP/HTTPS，去空白与末尾斜杠；禁止查询、片段、URL 凭证和 `0.0.0.0`/`::`。本机 localhost/127 地址允许保存，但页面显示黄色提醒。
+  Allowed Hosts 填客户端访问的主机名/IP，可用逗号分隔；文件保留天数默认 7。
+  两项保存后页面提示“保存成功，重启 Smart Python Builder 后生效。”
+- **AI 服务**：选择 OpenAI compatible，填 API 基础地址（不含 `/chat/completions`）、模型，
+  点击“更换 API Key”输入密钥。可先“测试 AI 连接”，再启用修复并保存。
+  测试发送最小 Chat Completions 请求，15 秒超时；诊断请求 60 秒超时。
+- **飞书通知**：点击“更换 Webhook”填写群自定义机器人的地址，可先“发送测试消息”，
+  再启用通知并保存。测试消息包含 Smart Python Builder、飞书通知测试成功和 UTC 时间。
+  发送超时 5 秒，通知失败不改变构建结果；暂不支持机器人签名 secret。
+
+密钥与 Webhook 只显示“已配置：********”；留空或提交遮罩会保留旧值。
+测试使用当前表单和已保存密钥，不自动保存；AI/飞书服务保存后用于下一次新构建。
+Builder 访问地址在每次生成通知链接时重新读取，正在运行的构建后续通知也会使用新地址。
+AI/飞书从与后台相同的 SettingsStore 读取，生产没有可选的 Fake Provider。
+
+配置统一保存在工作目录的 `web-data/settings.sqlite3`，Web 与默认 CLI 共用这份配置。
+**显式环境变量 > 后台保存值 > 默认值**。页面列出被环境变量覆盖的字段；若要后台管理，
+移除相应环境变量后重启。保留以下部署兼容变量：
 
 | 变量 | 用途 |
 |---|---|
-| `BUILDER_AI_API_KEY` | 兼容接口的 API Key |
-| `BUILDER_AI_BASE_URL` | API 基础地址，默认 `https://api.openai.com/v1`，不含 `/chat/completions` |
-| `BUILDER_AI_MODEL` | 服务商支持的模型名称，无硬编码默认模型 |
+| `BUILDER_ALLOWED_HOSTS` | 主机名/IP 逗号分隔，支持 `*`，去空白/空项，拒绝全空 |
+| `BUILDER_RETENTION_DAYS` | 1–3650 天 |
+| `BUILDER_AI_ENABLED` | `true` / `false` |
+| `BUILDER_AI_PROVIDER` | `openai-compatible` |
+| `BUILDER_AI_API_KEY` | AI 密钥 |
+| `BUILDER_AI_BASE_URL` | 默认 `https://api.openai.com/v1` |
+| `BUILDER_AI_MODEL` | 服务商模型，无默认模型 |
+| `BUILDER_FEISHU_ENABLED` | `true` / `false` |
+| `BUILDER_FEISHU_WEBHOOK` | 飞书机器人地址 |
+| `BUILDER_BASE_URL` | 覆盖后台 Builder 访问地址；默认 `http://127.0.0.1:8000` |
+| `BUILDER_COOKIE_SECURE` | HTTPS 部署设 `true`，局域网 HTTP 默认 `false` |
+| `BUILDER_ADMIN_TOKEN` | 原有自动化 Bearer API 兼容；普通管理员无需填写 |
 
-在启动服务的同一个 PowerShell 中设置，例如：
+旧部署只设 AI Key + Model 或 Webhook、且没有保存对应 Enabled 开关时，会兼容启用该服务。
+一旦保存开关，按明确开关执行。环境变量变更需要重启。
+AI 只能返回经过校验的结构化 RepairPlan，不得执行任意 shell、脚本或 runtime hook；最多修复两次。
+诊断会向配置的 AI 服务发送项目结构、依赖、计划和有长度限制的日志，请确认项目适合发送。
+
+## 构建通知行为
+
+| 场景 | 通知顺序 |
+|---|---|
+| 首次构建成功 | Build Success（一次） |
+| 首次失败，无 AI | Build Failed（一次） |
+| 首次失败，AI 修复成功 | Build Failed → AI Repair Success，不额外发 Build Success |
+| 首次失败，AI 放弃/异常/重试耗尽 | Build Failed → AI Repair Failed，不发 Build Success |
+
+通知异常只记录异常类型，不把成功构建变成失败；禁用飞书不发送自动通知。
+飞书以中文摘要显示项目、Build ID、入口、尝试次数、状态和链接，不原样发送诊断 JSON。
+任务链接使用 `{base_url}/?job={Web Job ID}`；审批链接为 `{base_url}/admin`，登录后审核候选。
+Web Job ID 与每次打包产生的 Build ID 不同，不能互换。
+
+## 局域网访问
+
+三个地址概念各司其职，不自动互相修改：
+
+| 配置 | 含义 | 示例 |
+|---|---|---|
+| Listening Host | uvicorn 监听哪些网络接口 | `--host 0.0.0.0` |
+| Allowed Hosts | 允许哪些请求 Host Header | `localhost,127.0.0.1,192.168.1.100` |
+| Builder Base URL | 飞书等通知中的可点击链接前缀 | `http://192.168.1.100:8000` |
+
+在系统设置中填写实际 **Builder 访问地址**，不要填监听地址；程序不会猜测 LAN IP。
+在 Allowed Hosts 中加入 Builder 主机的真实 IPv4，保存后重启；也可在启动终端设置：
 
 ```powershell
-$env:BUILDER_AI_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host 'API Key' -AsSecureString)).Password
-$env:BUILDER_AI_BASE_URL = 'https://api.openai.com/v1'
-$env:BUILDER_AI_MODEL = Read-Host 'Model'
+$env:BUILDER_ALLOWED_HOSTS = 'localhost,127.0.0.1,192.168.1.100'
+$env:BUILDER_BASE_URL = 'http://192.168.1.100:8000'
+uv run uvicorn web.app:app --host 0.0.0.0 --port 8000
 ```
 
-然后启动或重启 Web 服务。设置只对当前终端及其子进程生效；服务部署应通过
-Windows 服务账号的环境变量配置。不要将真实凭证写入源码、示例、日志或 Git。
-
-AI 只能返回结构化 RepairPlan JSON，由 Builder 验证后执行。允许受控依赖、
-隐藏导入、收集包、项目内资源及白名单参数修改，不允许 AI 执行任意 shell、
-脚本或 runtime hook。最多两次 AI 修复，未解决进入 NEEDS_MANUAL_REVIEW。
-诊断会将项目结构、依赖、构建计划和有长度限制的日志发送到配置的 AI 服务。
-接口实现参考 [结构化输出文档](https://developers.openai.com/api/docs/guides/structured-outputs)。
-
-## 配置飞书（可选）
-
-在飞书群创建自定义机器人，取得 Webhook，然后在启动服务前设置：
-
-```powershell
-$env:BUILDER_FEISHU_WEBHOOK = [System.Net.NetworkCredential]::new('', (Read-Host 'Feishu Webhook' -AsSecureString)).Password
-$env:BUILDER_BASE_URL = 'http://127.0.0.1:8000'
-```
-
-`BUILDER_BASE_URL` 应替换为通知接收者实际能访问的内部服务地址。
-支持首次构建失败、AI 修复成功、AI 最终失败三类通知。网络请求超时为 5 秒，
-发送失败只记录异常类型，不改变构建结果。未配置 Webhook 时禁用发送，
-不会自动使用 FakeNotifier。当前只实现普通文本 Webhook，不含签名 secret 配置。
+示例 IP 要换成 `ipconfig` 显示的实际 IPv4。`0.0.0.0` 是监听地址，客户端不要访问
+`http://0.0.0.0:8000`，应访问 `http://192.168.x.x:8000`。
+`BUILDER_ALLOWED_HOSTS='*'` 可用于可信局域网测试，但它并不是客户端权限控制。
+跨电脑访问还需管理员按组织要求配置 Windows Firewall 的 TCP 8000 入站规则，
+仅允许可信网段/专用网络；不要关闭防火墙或向公网开放。本项目不会自动修改防火墙。
 
 ## 经验库与管理员审批
 
@@ -109,15 +164,10 @@ $env:BUILDER_BASE_URL = 'http://127.0.0.1:8000'
 只有 APPROVED 经验会参与后续计划；REJECTED 和未审批候选不生效。
 匹配条件保守：Python 源码指纹、导入集合及依赖声明必须一致。
 
-1. 在服务终端设置管理员凭证并重启服务：
-
-   ```powershell
-   $env:BUILDER_ADMIN_TOKEN = [System.Net.NetworkCredential]::new('', (Read-Host 'Admin token' -AsSecureString)).Password
-   ```
-
-2. 打开 [管理员页面](http://127.0.0.1:8000/admin)，输入该凭证并加载经验。
-3. 查看失败计划、错误、AI 判断、修复计划、成功计划和适用条件。
-4. 可编辑修复 JSON 后批准，或拒绝；编辑内容仍受 Builder 校验。
+1. 登录 `/admin/login` 后进入“经验管理”。
+2. 查看失败计划、错误、AI 判断、修复计划、成功计划和适用条件。
+3. 可编辑修复 JSON 后批准，或拒绝；编辑内容仍受 Builder 校验。
+4. 自动化调用仍可使用 `Authorization: Bearer <BUILDER_ADMIN_TOKEN>`；浏览器后台使用 Session + CSRF。
 
 Web 经验保存在 `web-data/workspace/experiences.sqlite3`；CLI 默认为
 `workspace/experiences.sqlite3`。两者使用各自数据目录。审批后不可原地重复修改。
@@ -134,7 +184,10 @@ V1 定位为 **trusted/internal Windows Builder**。上传的 Python、安装包
 单 worker/有限队列、最多两次 AI 修复、通知隔离、任务恢复及保留期清理。
 默认终态 workspace/产物和过期上传保留七天；`BUILDER_RETENTION_DAYS` 可调整。
 CLI workspace 的清理需由运维调用维护函数；Web 在启动及每小时自动维护。
-没有虚拟机隔离、硬 CPU/内存配额、分布式队列或用户登录系统。
+只有管理员登录，没有普通用户账号、虚拟机隔离、硬 CPU/内存配额或分布式队列。
+Windows 密钥使用当前服务用户的 DPAPI 加密；管理员密码为 scrypt 哈希，Session 令牌只存摘要。
+数据库、备份和运行目录不得提交 Git；保持服务账号专用 ACL。同一用户执行的可信项目仍可能访问设置，
+DPAPI 不提供 worker 沙箱。HTTP 不加密登录内容，仅适用于受控网络；生产网络建议 HTTPS。
 更完整说明见 [运维与安全边界](docs/OPERATIONS.md)。
 
 Web/CLI 构建成功表示已生成非空产物，并不自动运行任意用户上传程序。
@@ -154,3 +207,5 @@ uv run python tests/windows_v1_acceptance.py
 [发布检查清单](docs/RELEASE_CHECKLIST_V1.md) 记录最终矩阵、Build ID、产物与运行结果。
 [实施计划](docs/IMPLEMENTATION_PLAN.md) 中 Phase 1–8 均为 CLOSED；V1 = COMPLETE。
 FakeAIProvider/FakeNotifier 仅用于显式注入的测试；真实外部服务需自行配置并联调。
+
+[v1.0.1 开发验收记录](docs/V1_0_1_ACCEPTANCE.md) 记录 UI、登录、设置及本轮 Windows 验收；尚未 merge/tag。

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
 
 from analyzer import ProjectAnalysis, analyze_project
@@ -13,6 +12,8 @@ from .models import BuildPlan
 from .ai import RepairPlan, configured_provider
 from .notifications import NotificationService
 from .learning import ExperienceStore
+from .settings import SettingsStore
+from .urls import builder_links
 
 
 @dataclass(slots=True)
@@ -37,16 +38,25 @@ class EntryPointRequired(ValueError):
 class SmartBuilder:
     """Analyze an uploaded source and feed deterministic results into BuildEngine."""
 
-    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None, experience_store=None):
+    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None, experience_store=None, settings_store=None):
+        self.settings_store = settings_store or SettingsStore('web-data/settings.sqlite3')
+        settings = self.settings_store.effective()
         self.engine = BuildEngine(workspace_root, timeout)
         self.experiences = ExperienceEngine()
-        self.ai_provider = ai_provider if ai_provider is not None else configured_provider()
+        self.ai_provider = ai_provider if ai_provider is not None else configured_provider(settings)
         self.artifact_validator = artifact_validator
         self.on_state = None
-        self.notifications = notifications or NotificationService.configured()
-        self.details_url = os.environ.get('BUILDER_BASE_URL', 'http://127.0.0.1:8000')
+        self.notifications = notifications or NotificationService.configured(settings)
+        self.web_job_id = None
         self.experience_store = experience_store or ExperienceStore(self.engine.workspace_root / 'experiences.sqlite3')
         self.experiences.store = self.experience_store
+
+    @property
+    def details_url(self):
+        return self.notification_links()['details_url']
+
+    def notification_links(self):
+        return builder_links(self.settings_store.effective()['base_url'], self.web_job_id)
 
     def build(
         self,
@@ -91,6 +101,11 @@ class SmartBuilder:
             attempts.append(dict(number=attempt+1, build_id=result.build_id, success=result.success, error=result.error, plan=plan.to_dict()))
             if result.success:
                 transition('SUCCESS')
+                if attempt == 0:
+                    self.notifications.emit(dict(event='Build Success', project=analysis.source.name,
+                        build_id=result.build_id, entry=plan.entry_point, dependencies=plan.dependencies,
+                        attempt_count=1, status='SUCCESS', mode=plan.mode,
+                        details_url=self.details_url))
                 break
             transition('FAILED')
             if attempt == 0:
@@ -129,8 +144,9 @@ class SmartBuilder:
                 build_id=result.build_id, original_error=attempts[0]['error'], final_error=result.error,
                 attempts=[dict(number=item['number'], success=item['success']) for item in attempts],
                 diagnoses=[item.get('repair', item.get('diagnosis_error')) for item in attempts if 'repair' in item or 'diagnosis_error' in item],
-                status=states[-1], experience_candidate=candidate_id,
-                details_url=self.details_url, approval_url=self.details_url.split('?')[0].rstrip('/')+'/admin'))
+                project=analysis.source.name, entry=plan.entry_point, dependencies=plan.dependencies,
+                attempt_count=len(attempts), status=states[-1], experience_candidate=candidate_id,
+                **self.notification_links()))
         (result.workspace / 'attempts.json').write_text(json.dumps(dict(states=states, attempts=attempts, notification_failures=self.notifications.failures), ensure_ascii=False, indent=2), encoding='utf-8')
         return SmartBuildResult(analysis, result, plan, states[-1], attempts, states, candidate_id)
 
