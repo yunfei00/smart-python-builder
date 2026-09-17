@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 import urllib.request
 from typing import Protocol
+from .settings import environment_settings
 
 
 class Notifier(Protocol):
@@ -22,7 +22,7 @@ class FakeNotifier:
 
 class FeishuNotifier:
     def __init__(self, webhook=None):
-        self.webhook=webhook or os.environ.get('BUILDER_FEISHU_WEBHOOK')
+        self.webhook=webhook if webhook is not None else environment_settings()[0]['feishu_webhook']
         if not self.webhook:raise ValueError('Configure BUILDER_FEISHU_WEBHOOK')
 
     def send(self,event):
@@ -47,5 +47,6 @@ class NotificationService:
             self.failures.append(type(exc).__name__)
 
     @classmethod
-    def configured(cls):
-        return cls(FeishuNotifier()) if os.environ.get('BUILDER_FEISHU_WEBHOOK') else cls()
+    def configured(cls, settings=None):
+        settings = settings if settings is not None else environment_settings()[0]
+        return cls(FeishuNotifier(settings['feishu_webhook'])) if settings['feishu_enabled'] and settings['feishu_webhook'] else cls()

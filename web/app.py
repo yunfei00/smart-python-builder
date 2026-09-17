@@ -5,8 +5,6 @@ import shutil
 import threading
 import uuid
 import zipfile
-import os
-import secrets
 import time
 import asyncio
 import contextlib
@@ -16,28 +14,35 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Header, Depends
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Depends
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 from analyzer import analyze_project
 from builder import SmartBuilder
 from builder.learning import ExperienceStore
 from builder.maintenance import cleanup_workspaces
+from builder.settings import SettingsStore, allowed_hosts, environment_settings
+from .admin import register_admin
 from .security import RequestLimitsMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
 
 
 def _allowed_hosts() -> list[str]:
-    raw = os.environ.get('BUILDER_ALLOWED_HOSTS', '127.0.0.1,localhost,testserver')
-    hosts = [host.strip() for host in raw.split(',') if host.strip()]
-    return hosts or ['127.0.0.1', 'localhost', 'testserver']
+    return allowed_hosts(environment_settings()[0]['allowed_hosts'])
 
 
-def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admin_token=None):
+def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admin_token=None, *, ai_factory=None, notifier_factory=None):
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    settings = SettingsStore(root / 'settings.sqlite3')
+    startup_settings = settings.effective()
+    def make_builder():
+        if builder_factory is SmartBuilder:
+            return builder_factory(root / 'workspace', settings_store=settings)
+        return builder_factory(root / 'workspace')
     jobs = {}
     lock = threading.RLock()
     pool = ThreadPoolExecutor(max_workers=1)
@@ -69,7 +74,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @asynccontextmanager
     async def lifespan(app):
-        retention = max(1, int(os.environ.get('BUILDER_RETENTION_DAYS', '7')))*86400
+        retention = startup_settings['retention_days'] * 86400
         def cleanup():
             cleanup_workspaces(root / 'workspace', retention_seconds=retention)
             with lock:
@@ -97,30 +102,25 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     app = FastAPI(lifespan=lifespan)
     app.add_middleware(RequestLimitsMiddleware)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts())
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts(startup_settings['allowed_hosts']))
+    app.mount('/static', StaticFiles(directory=str(Path(__file__).parent / 'static')), name='static')
 
     @app.middleware('http')
     async def same_origin(request, call_next):
         origin = request.headers.get('origin')
-        if request.method not in {'GET','HEAD','OPTIONS'} and origin and urlsplit(origin).netloc != request.headers.get('host'):
+        if request.method not in {'GET','HEAD','OPTIONS'} and origin and (urlsplit(origin).netloc != request.headers.get('host') or urlsplit(origin).scheme != request.url.scheme):
             from fastapi.responses import JSONResponse
             return JSONResponse({'detail':'Cross-origin writes are disabled'}, status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith(('/admin', '/api/admin')):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
     app.state.jobs = jobs
     app.state.root = root
     store = ExperienceStore(root / 'workspace' / 'experiences.sqlite3')
     app.state.experience_store = store
-    admin_token = admin_token or os.environ.get('BUILDER_ADMIN_TOKEN')
-
-    def admin(authorization: str = Header(default='')):
-        if not admin_token:
-            raise HTTPException(503, '管理员入口未配置')
-        if not secrets.compare_digest(authorization, 'Bearer ' + admin_token):
-            raise HTTPException(401, '管理员凭证无效')
-
-    @app.get('/admin', response_class=HTMLResponse)
-    def admin_page(request: Request):
-        return templates.TemplateResponse(request=request, name='admin.html', context={})
+    app.state.settings = settings
+    admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory)
 
     @app.get('/api/admin/experiences', dependencies=[Depends(admin)])
     def candidates():
@@ -146,7 +146,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         job['status'] = 'BUILDING'
         persist(job)
         try:
-            builder = builder_factory(root / 'workspace')
+            builder = make_builder()
             def created(build_id, log_file):
                 job.update(build_id=build_id, log=str(log_file))
                 persist(job)
@@ -184,7 +184,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             source = save_upload(file.filename, data, upload_dir)
             analysis = analyze_project(source)
             entries = analysis.entry_candidates or analysis.python_files
-            builder = builder_factory(root / 'workspace')
+            builder = make_builder()
             plan = builder.experiences.plan(analysis, analysis.entry_point).to_dict() if analysis.entry_point else None
         except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
@@ -203,7 +203,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         if entry not in job['entries'] or mode not in {'onefile', 'onedir'}:
             raise HTTPException(400, '请选择有效入口和输出格式')
         analysis = analyze_project(job['source'])
-        builder = builder_factory(root / 'workspace')
+        builder = make_builder()
         return builder.experiences.plan(analysis, analysis.project_root / entry, mode=mode).to_dict()
 
     @app.post('/api/jobs/{job_id}/build')
@@ -223,7 +223,18 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.get('/api/jobs/{job_id}')
     def status(job_id: str):
-        return dict(get_job(job_id))
+        job = dict(get_job(job_id))
+        job['artifact_available'] = artifact_available(job)
+        return job
+
+    def artifact_available(job):
+        if job['status'] != 'SUCCESS' or not job.get('terminal') or not job.get('artifact'):
+            return False
+        artifact = Path(job['artifact'])
+        try:
+            return artifact.resolve().is_relative_to(root) and artifact.is_file() and artifact.stat().st_size > 0
+        except OSError:
+            return False
 
     @app.get('/api/jobs/{job_id}/log')
     def log(job_id: str):
@@ -234,10 +245,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     @app.get('/api/jobs/{job_id}/download')
     def download(job_id: str):
         job = get_job(job_id)
-        if job['status'] != 'SUCCESS' or not job.get('artifact'):
+        if job['status'] != 'SUCCESS' or not job.get('terminal') or not job.get('artifact'):
             raise HTTPException(409, '文件尚未生成')
         artifact = Path(job['artifact'])
-        if not artifact.resolve().is_relative_to(root) or not artifact.is_file():
+        if not artifact_available(job):
             raise HTTPException(410, '产物已过期或不可用')
         return FileResponse(artifact, filename=artifact.name)
 

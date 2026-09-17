@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
 
 from analyzer import ProjectAnalysis, analyze_project
@@ -13,6 +12,7 @@ from .models import BuildPlan
 from .ai import RepairPlan, configured_provider
 from .notifications import NotificationService
 from .learning import ExperienceStore
+from .settings import SettingsStore
 
 
 @dataclass(slots=True)
@@ -37,14 +37,15 @@ class EntryPointRequired(ValueError):
 class SmartBuilder:
     """Analyze an uploaded source and feed deterministic results into BuildEngine."""
 
-    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None, experience_store=None):
+    def __init__(self, workspace_root: Path | str = "workspace", timeout: int = 900, *, ai_provider=None, artifact_validator=None, notifications=None, experience_store=None, settings_store=None):
+        settings = (settings_store or SettingsStore('web-data/settings.sqlite3')).effective()
         self.engine = BuildEngine(workspace_root, timeout)
         self.experiences = ExperienceEngine()
-        self.ai_provider = ai_provider if ai_provider is not None else configured_provider()
+        self.ai_provider = ai_provider if ai_provider is not None else configured_provider(settings)
         self.artifact_validator = artifact_validator
         self.on_state = None
-        self.notifications = notifications or NotificationService.configured()
-        self.details_url = os.environ.get('BUILDER_BASE_URL', 'http://127.0.0.1:8000')
+        self.notifications = notifications or NotificationService.configured(settings)
+        self.details_url = settings['base_url']
         self.experience_store = experience_store or ExperienceStore(self.engine.workspace_root / 'experiences.sqlite3')
         self.experiences.store = self.experience_store
 
