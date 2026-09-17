@@ -1,0 +1,9 @@
+{
+  "case": "normal packaging failure",
+  "status": "PASS",
+  "build_id": "87e866c3a2894282a7879a3187d0db18",
+  "artifact": null,
+  "runtime_verification": "Not applicable: packaging rejected invalid Python, no EXE generated",
+  "notes": "Actual PyInstaller exit 1 and SyntaxError captured; build failed as expected",
+  "log": "D:\\code_2026\\smart-python-builder\\workspace\\87e866c3a2894282a7879a3187d0db18\\build.log"
+}

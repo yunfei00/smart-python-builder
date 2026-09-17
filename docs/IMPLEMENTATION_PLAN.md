@@ -149,3 +149,9 @@ TODO → IN_PROGRESS → VERIFYING → CLOSED。55 项测试通过。真实 Wind
 TODO → IN_PROGRESS → VERIFYING → CLOSED。72 项 pytest 通过，21 项真实 Windows 验收全部 PASS（覆盖要求的 20 项并额外验证 PyYAML）。修复真实矩阵发现的 pyserial 动态协议隐藏导入；实现上传/ZIP/路径校验、请求限流、单工作队列、总构建超时与进程树终止、磁盘检查、状态持久化恢复、定期保留期清理，以及本地执行后端扩展接口。Web ZIP 多入口选择、自动资源打包、下载解压后 EXE 运行通过。详见 v1-acceptance.json、phase8-web-acceptance.json、OPERATIONS.md。
 
 **Smart Python Builder V1 = COMPLETE**。真实 AI 和飞书账号未调用，使用 Fake Provider 完成闭环验收；低权限独立账号部署与 VM 隔离边界见运维文档。
+
+## V1.0.0 Release Audit（2026-09-17）
+
+发布审计在 main 上执行，不增加功能。Phase 1 CLOSED；Phase 2 CLOSED；Phase 3 CLOSED；Phase 4 CLOSED；Phase 5 CLOSED；Phase 6 CLOSED；Phase 7 CLOSED；Phase 8 CLOSED。Smart Python Builder V1 = COMPLETE。
+
+已补充生产 Provider 选择、请求大小、ZIP 解压/符号链接、队列上限、超时子进程和失败上传清理审计测试；发现并修复拒绝上传留下部分文件的问题。最新完整自动化测试为 80 passed。最终 Windows 矩阵、运行证据、版本和发布检查项记录于 RELEASE_CHECKLIST_V1.md。真实 AI/飞书未配置，不用 Fake 代替生产配置。

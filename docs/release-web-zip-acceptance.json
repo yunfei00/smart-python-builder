@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "job_id": "7cf0e3e191064ce0b1c4864cae001aba",
+  "build_id": "0f27713697d6414bbf9f81033f6a5d53",
+  "artifact": "D:\\code_2026\\smart-python-builder\\.pytest-tmp-web-zip-3ee91ee71b884d91b49ffa64aae08f55\\main\\main.exe",
+  "notes": "Live HTTP ZIP upload, explicit multi-entry selection, automatic JSON resource inclusion, onedir ZIP download, EXE exit 0"
+}

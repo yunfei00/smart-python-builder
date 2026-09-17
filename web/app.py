@@ -173,13 +173,18 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     async def upload(file: UploadFile = File(...)):
         data = await file.read(MAX_UPLOAD + 1)
         job_id = uuid.uuid4().hex
+        upload_dir = root / 'uploads' / job_id
         try:
-            source = save_upload(file.filename, data, root / 'uploads' / job_id)
+            source = save_upload(file.filename, data, upload_dir)
             analysis = analyze_project(source)
             entries = analysis.entry_candidates or analysis.python_files
             builder = builder_factory(root / 'workspace')
             plan = builder.experiences.plan(analysis, analysis.entry_point).to_dict() if analysis.entry_point else None
         except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
+            # Rejected uploads have no job record, so retention cannot discover
+            # their partial files. Remove only this request's owned directory.
+            if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
+                shutil.rmtree(upload_dir.resolve())
             raise HTTPException(400, str(exc)) from exc
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,

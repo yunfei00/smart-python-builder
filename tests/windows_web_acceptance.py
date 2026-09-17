@@ -1,6 +1,7 @@
 from pathlib import Path
 import httpx, time, subprocess, json
-base='http://127.0.0.1:8765'
+import sys
+base=sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:8765'
 with httpx.Client(base_url=base, timeout=30) as client:
     assert client.get('/').status_code==200
     job=client.post('/api/uploads',files={'file':('hello.py',b"print('web-build-ok')")}).json()
@@ -9,7 +10,7 @@ with httpx.Client(base_url=base, timeout=30) as client:
     deadline=time.monotonic()+240
     while time.monotonic()<deadline:
         state=client.get('/api/jobs/'+job['id']).json()
-        if state['status'] in ('SUCCESS','FAILED'):break
+        if state.get('terminal'):break
         time.sleep(1)
     assert state['status']=='SUCCESS',state
     download=client.get('/api/jobs/'+job['id']+'/download')
