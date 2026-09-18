@@ -1,11 +1,29 @@
-workspace/
+# Python environments and caches
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Builder runtime data
+workspace/
+web-data/
 build/
 dist/
 *.spec
+
+# Test and acceptance scratch output
 .pytest-tmp*/
-web-data/
 .pytest-tmp*.exe
+.pytest-tmp*.json
+
+# Local configuration / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
