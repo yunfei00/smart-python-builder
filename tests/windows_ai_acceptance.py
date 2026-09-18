@@ -17,5 +17,5 @@ result=SmartBuilder(ai_provider=provider,artifact_validator=verify,notifications
 assert result.status=='SUCCESS' and len(result.attempts)==2,result
 assert len(provider.contexts)==1
 assert [e['event'] for e in notifier.events]==['Build Failed','AI Repair Success']
-Path('docs',sys.argv[1] if len(sys.argv)>1 else 'phase5-acceptance.json').write_text(json.dumps(dict(status=result.status,states=result.states,attempts=result.attempts,notifications=notifier.events,artifact=str(result.build.artifact),notes='Real EXE failed with missing colorsys, FakeAIProvider supplied validated hidden import, rebuilt EXE exited 0'),indent=2))
+source.joinpath('acceptance-result.json').write_text(json.dumps(dict(status=result.status,states=result.states,attempts=result.attempts,notifications=notifier.events,artifact=str(result.build.artifact),notes='Real EXE failed with missing colorsys, FakeAIProvider supplied validated hidden import, rebuilt EXE exited 0'),indent=2))
 print(result.status,result.build.build_id)
