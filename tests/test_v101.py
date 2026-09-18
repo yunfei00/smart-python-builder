@@ -14,6 +14,9 @@ from web.app import create_app
 
 @pytest.fixture
 def configured(tmp_path, monkeypatch):
+    # Host-related tests must not inherit deployment/LAN overrides from the
+    # developer shell (for example BUILDER_ALLOWED_HOSTS='*').
+    monkeypatch.delenv('BUILDER_ALLOWED_HOSTS', raising=False)
     monkeypatch.setenv('BUILDER_ADMIN_PASSWORD', 'test-password-only')
     app = create_app(tmp_path)
     with TestClient(app) as client:
@@ -224,7 +227,8 @@ def test_minimal_ai_request_and_timeout(monkeypatch):
     assert json.loads(req.data) == {'model':'configured-model','messages':[{'role':'user','content':'Reply OK.'}]}
 
 
-def test_restart_required_hosts(tmp_path):
+def test_restart_required_hosts(tmp_path, monkeypatch):
+    monkeypatch.delenv('BUILDER_ALLOWED_HOSTS', raising=False)
     app = create_app(tmp_path, admin_token='fixture')
     with TestClient(app) as client:
         assert client.post('/api/admin/settings',headers={'Authorization':'Bearer fixture'},json={'allowed_hosts':'localhost,testserver,192.168.1.100'}).status_code == 200
