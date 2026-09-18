@@ -135,3 +135,11 @@ def test_python_source_encoding_cookie(tmp_path):
     source=tmp_path/'main.py'
     source.write_bytes("# coding: cp1252\n# café\nimport json\n".encode('cp1252'))
     assert analyze_project(source).packages==[]
+
+
+def test_git_dependency_build_plan_validation(tmp_path):
+    from builder.models import BuildPlan
+    write(tmp_path / "main.py", "print(1)\n")
+    dependency = "android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"
+    plan = BuildPlan("main.py", [dependency], "pyproject.toml")
+    plan.validate(tmp_path)
