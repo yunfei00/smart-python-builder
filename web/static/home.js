@@ -14,21 +14,35 @@ function renderStatus(value) {
   $('status').textContent = ready ? '✓ Windows 应用生成成功' : (states[value.status] || value.status);
   $('status').classList.toggle('success', ready);
 }
-$('upload').onsubmit = async event => {
-  event.preventDefault();
+function showProject(next, current) {
+  if (current !== generation) return;
+  job = next; $('ids').textContent = '任务 ID：' + job.id; $('log').textContent = '等待构建开始。';
+  $('project').hidden = false; $('entry').replaceChildren();
+  if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
+  for (const value of job.entries) $('entry').add(new Option(value, value));
+  $('dependencies').textContent = '检测到的依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
+  $('type').textContent = '应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面' : '控制台 / 待选择入口');
+  $('plan').textContent = JSON.stringify(job.plan, null, 2); $('build').disabled = false;
+}
+function beginImport() {
   const current = ++generation;
   $('error').textContent = ''; $('project').hidden = true;
   renderStatus({status:'READY'});
+  return current;
+}
+$('upload').onsubmit = async event => {
+  event.preventDefault();
+  const current = beginImport();
   try {
-    const next = await api('/api/uploads', {method:'POST', body:new FormData(event.target)});
-    if (current !== generation) return;
-    job = next; $('ids').textContent = '任务 ID：' + job.id; $('log').textContent = '等待构建开始。';
-    $('project').hidden = false; $('entry').replaceChildren();
-    if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
-    for (const value of job.entries) $('entry').add(new Option(value, value));
-    $('dependencies').textContent = '检测到的依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
-    $('type').textContent = '应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面' : '控制台 / 待选择入口');
-    $('plan').textContent = JSON.stringify(job.plan, null, 2); $('build').disabled = false;
+    showProject(await api('/api/uploads', {method:'POST', body:new FormData(event.target)}), current);
+  } catch (error) { $('error').textContent = error.message; }
+};
+$('github-import').onsubmit = async event => {
+  event.preventDefault();
+  const current = beginImport();
+  try {
+    const payload = {url:$('github-url').value, ref:$('github-ref').value || null};
+    showProject(await api('/api/repositories', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}), current);
   } catch (error) { $('error').textContent = error.message; }
 };
 $('build').onclick = async () => {
