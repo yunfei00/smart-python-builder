@@ -28,6 +28,7 @@ from .admin import register_admin
 from .security import RequestLimitsMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
+from .repositories import clone_public_github_repository
 
 
 def _allowed_hosts() -> list[str]:
@@ -193,6 +194,28 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False)
+        jobs[job_id] = job
+        persist(job)
+        return job
+
+    @app.post('/api/repositories')
+    def import_repository(payload: dict):
+        job_id = uuid.uuid4().hex
+        upload_dir = root / 'uploads' / job_id
+        try:
+            source = clone_public_github_repository(payload.get('url', ''), upload_dir, payload.get('ref'))
+            analysis = analyze_project(source)
+            entries = analysis.entry_candidates or analysis.python_files
+            builder = make_builder()
+            plan = builder.experiences.plan(analysis, analysis.entry_point).to_dict() if analysis.entry_point else None
+        except (ValueError, OSError, RuntimeError) as exc:
+            if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
+                shutil.rmtree(upload_dir.resolve())
+            raise HTTPException(400, str(exc)) from exc
+        job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
+                   entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
+                   dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
+                   source_type='github', repository_url=payload.get('url', '').strip(), repository_ref=(payload.get('ref') or '').strip() or None)
         jobs[job_id] = job
         persist(job)
         return job
