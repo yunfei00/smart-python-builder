@@ -66,7 +66,7 @@ hard per-process CPU/memory quotas.
 
 ```powershell
 uv run pytest tests -q --basetemp .pytest-tmp-check
-uv run python tests/windows_v1_acceptance.py
+uv run python tests/windows_acceptance.py
 ```
 
 The maintained Windows acceptance script exercises representative real EXE builds and runtime checks.
