@@ -59,6 +59,20 @@ def test_pyproject_has_priority(tmp_path):
     assert result.packages == ["requests>=2", "pandas"]
 
 
+
+def test_pyproject_preserves_pep508_git_dependency(tmp_path):
+    write(tmp_path / "main.py", "import android_dut_agent\n")
+    write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname="demo"\nversion="0.1.0"\ndependencies=["android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"]\n',
+    )
+    result = analyze_project(tmp_path)
+    assert result.dependency_source == "pyproject.toml"
+    assert result.packages == [
+        "android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"
+    ]
+
+
 def test_ambiguous_entries_are_not_guessed(tmp_path):
     write(tmp_path / "main.py", "print('main')\n")
     write(tmp_path / "app.py", "print('app')\n")
