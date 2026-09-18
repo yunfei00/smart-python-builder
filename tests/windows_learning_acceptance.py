@@ -26,5 +26,5 @@ second=builder.build(second_source)
 assert second.build.success and len(second.attempts)==1
 assert len(provider.contexts)==1
 assert first.candidate_id in second.plan.matched_experiences
-Path('docs/phase7-acceptance.json').write_text(json.dumps(dict(status='PASS',first_builds=first.attempts,candidate_id=first.candidate_id,second_builds=second.attempts,artifact=str(second.build.artifact),ai_calls=len(provider.contexts),notes='Real EXE failure, AI repair, authenticated HTTP approval, second project first-attempt EXE success without AI'),indent=2))
+root.joinpath('acceptance-result.json').write_text(json.dumps(dict(status='PASS',first_builds=first.attempts,candidate_id=first.candidate_id,second_builds=second.attempts,artifact=str(second.build.artifact),ai_calls=len(provider.contexts),notes='Real EXE failure, AI repair, authenticated HTTP approval, second project first-attempt EXE success without AI'),indent=2))
 print('PASS',first.candidate_id,second.build.build_id)
