@@ -33,10 +33,10 @@ class BuildPlan:
         if entry.suffix != '.py' or not entry.is_file():
             raise ValueError('Invalid entry point')
         for dependency in self.dependencies:
-            registry = re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\\-\\[\\],<>=!~;\\s\\\'"()*+]*', dependency)
+            registry = re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\-\[\],<>=!~;\s\'"()*+]*', dependency)
             vcs = re.fullmatch(
-                r'[A-Za-z0-9][A-Za-z0-9_.-]*(?:\\[[A-Za-z0-9_,.-]+\\])?\\s*@\\s*'
-                r'git\\+https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\\.git)?'
+                r'[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[A-Za-z0-9_,.-]+\])?\s*@\s*'
+                r'git\+https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?'
                 r'(?:@[A-Za-z0-9][A-Za-z0-9._/-]{0,199})?',
                 dependency,
             )
