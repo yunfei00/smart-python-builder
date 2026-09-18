@@ -25,5 +25,5 @@ with httpx.Client(base_url=base,timeout=30) as c:
     exe=next(destination.rglob('main.exe')).resolve()
     p=subprocess.run([str(exe)],capture_output=True,text=True,timeout=30)
     assert p.returncode==0 and 'web-zip-ok' in p.stdout,p.stderr
-    Path('docs/phase8-web-acceptance.json').write_text(json.dumps(dict(status='PASS',job_id=j['id'],build_id=state['build_id'],artifact=str(exe),notes='Live HTTP ZIP upload, explicit multi-entry selection, automatic JSON resource inclusion, onedir ZIP download, EXE exit 0'),indent=2))
+    destination.joinpath('acceptance-result.json').write_text(json.dumps(dict(status='PASS',job_id=j['id'],build_id=state['build_id'],artifact=str(exe),notes='Live HTTP ZIP upload, explicit multi-entry selection, automatic JSON resource inclusion, onedir ZIP download, EXE exit 0'),indent=2))
     print('WEB ZIP PASS',state['build_id'])
