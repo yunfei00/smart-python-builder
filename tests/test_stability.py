@@ -58,7 +58,10 @@ def test_windows_zip_paths_rejected(tmp_path,name):
         assert client.post('/api/uploads',files={'file':('project.zip',archive)}).status_code==400
 
 
-def test_request_size_and_origin_limit(tmp_path):
+def test_request_size_and_origin_limit(tmp_path, monkeypatch):
+    # Security assertions must use the application's default host policy, not
+    # a deployment override such as BUILDER_ALLOWED_HOSTS='*'.
+    monkeypatch.delenv('BUILDER_ALLOWED_HOSTS', raising=False)
     with TestClient(create_app(tmp_path)) as client:
         assert client.post('/api/uploads',content=b'x',headers={'Content-Length':str(22*1024*1024)}).status_code==413
         assert client.post('/api/uploads',headers={'Origin':'https://evil.invalid'}).status_code==403
