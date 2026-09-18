@@ -167,7 +167,15 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             else:
                 job.update(status=result.status, error=result.build.error, attempts=result.attempts)
         except Exception as exc:
-            job.update(status='FAILED', error=str(exc))
+            error = str(exc) or type(exc).__name__
+            job.update(status='FAILED', error=error)
+            # Failures before BuildEngine creates a workspace/log (for example
+            # plan validation) still need a visible diagnostic in the Web UI.
+            if not job.get('log'):
+                diagnostic = root / 'uploads' / job_id / 'build-error.log'
+                diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                diagnostic.write_text('BUILD FAILED BEFORE ENGINE START\n' + error + '\n', encoding='utf-8')
+                job['log'] = str(diagnostic)
         finally:
             job['terminal'] = True
             persist(job)
