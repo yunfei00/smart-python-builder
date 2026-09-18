@@ -47,3 +47,31 @@ def test_plan_preview_for_multiple_entries(tmp_path):
         assert r.status_code==200
         assert r.json()['entry_point']=='app.py' and r.json()['mode']=='onedir'
         assert client.post('/api/uploads',files={'file':('broken.zip',b'not zip')}).status_code==400
+
+
+def test_github_repository_import_uses_normal_analysis_flow(tmp_path, monkeypatch):
+    project = tmp_path / "fake-repository"
+    project.mkdir()
+    (project / "main.py").write_text("import requests\n", encoding="utf-8")
+    (project / "pyproject.toml").write_text(
+        '[project]\nname="demo"\nversion="0.1.0"\ndependencies=["requests", "agent @ git+https://github.com/example/agent.git@v1"]\n',
+        encoding="utf-8",
+    )
+
+    def fake_clone(url, target, ref=None):
+        assert url == "https://github.com/example/demo"
+        assert ref == "v2"
+        return project
+
+    monkeypatch.setattr("web.app.clone_public_github_repository", fake_clone)
+    with TestClient(create_app(tmp_path / "web")) as client:
+        response = client.post(
+            "/api/repositories",
+            json={"url": "https://github.com/example/demo", "ref": "v2"},
+        )
+        assert response.status_code == 200
+        job = response.json()
+        assert job["source_type"] == "github"
+        assert job["entry"] == "main.py"
+        assert job["dependency_source"] == "pyproject.toml"
+        assert job["dependencies"][1].startswith("agent @ git+https://")
