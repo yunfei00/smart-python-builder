@@ -56,6 +56,9 @@ def test_changed_source_does_not_match(tmp_path,monkeypatch):
 
 
 def test_admin_disabled_without_token(tmp_path,monkeypatch):
+    # This legacy test verifies the truly uninitialized admin state. Do not
+    # inherit the developer machine's password bootstrap environment.
     monkeypatch.delenv('BUILDER_ADMIN_TOKEN',raising=False)
+    monkeypatch.delenv('BUILDER_ADMIN_PASSWORD',raising=False)
     with TestClient(create_app(tmp_path)) as client:
         assert client.get('/api/admin/experiences').status_code==503

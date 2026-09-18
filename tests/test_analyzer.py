@@ -59,6 +59,20 @@ def test_pyproject_has_priority(tmp_path):
     assert result.packages == ["requests>=2", "pandas"]
 
 
+
+def test_pyproject_preserves_pep508_git_dependency(tmp_path):
+    write(tmp_path / "main.py", "import android_dut_agent\n")
+    write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname="demo"\nversion="0.1.0"\ndependencies=["android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"]\n',
+    )
+    result = analyze_project(tmp_path)
+    assert result.dependency_source == "pyproject.toml"
+    assert result.packages == [
+        "android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"
+    ]
+
+
 def test_ambiguous_entries_are_not_guessed(tmp_path):
     write(tmp_path / "main.py", "print('main')\n")
     write(tmp_path / "app.py", "print('app')\n")
@@ -121,3 +135,11 @@ def test_python_source_encoding_cookie(tmp_path):
     source=tmp_path/'main.py'
     source.write_bytes("# coding: cp1252\n# café\nimport json\n".encode('cp1252'))
     assert analyze_project(source).packages==[]
+
+
+def test_git_dependency_build_plan_validation(tmp_path):
+    from builder.models import BuildPlan
+    write(tmp_path / "main.py", "print(1)\n")
+    dependency = "android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"
+    plan = BuildPlan("main.py", [dependency], "pyproject.toml")
+    plan.validate(tmp_path)

@@ -1,6 +1,6 @@
 [project]
 name = "smart-python-builder"
-version = "1.0.1"
+version = "1.1.0"
 description = "Build isolated Windows executables from Python sources"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,4 +21,17 @@ packages = ["builder", "analyzer", "web"]
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
+]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [
+    ".git",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "workspace",
+    "web-data",
 ]
