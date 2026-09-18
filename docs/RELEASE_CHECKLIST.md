@@ -17,7 +17,7 @@ All tests must pass. Review any new warnings.
 
 ## Windows acceptance
 ```powershell
-uv run python tests/windows_v1_acceptance.py
+uv run python tests/windows_acceptance.py
 ```
 Also verify through the Web UI: single-file build, ZIP/multi-file build, public GitHub repository import,
 a `pyproject.toml` project with a public GitHub VCS dependency, explicit entry selection, useful
