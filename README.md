@@ -202,7 +202,7 @@ uv run python analyze.py path\to\project
 uv run python build.py path\to\project --entry main.py
 uv run python build.py app.py --mode onedir
 uv run pytest tests -q --basetemp .pytest-tmp-check
-uv run python tests/windows_acceptance.py
+uv run python tests/windows_v1_acceptance.py
 ```
 
 [发布检查清单](docs/RELEASE_CHECKLIST.md) 用于每次正式发布前的统一验证。
