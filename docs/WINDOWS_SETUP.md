@@ -28,7 +28,7 @@ uv run uvicorn web.app:app --host 127.0.0.1 --port 8000
 For a release candidate, also run the maintained Windows acceptance entry point:
 
 ```powershell
-uv run python tests/windows_v1_acceptance.py
+uv run python tests/windows_acceptance.py
 ```
 
 The build engine installs each target project's dependencies and PyInstaller into its own
