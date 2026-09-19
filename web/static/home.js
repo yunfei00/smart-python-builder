@@ -87,13 +87,33 @@ $('upload').onsubmit = async event => {
 $('github-import').onsubmit = async event => {
   event.preventDefault();
   const current = beginImport();
+  const form = $('github-import');
+  const button = $('github-import-button');
+  const status = $('github-import-status');
+  const url = $('github-url');
+  const ref = $('github-ref');
+  form.classList.add('is-loading');
+  button.disabled = true;
+  button.textContent = '正在导入…';
+  url.readOnly = true;
+  ref.readOnly = true;
+  status.hidden = false;
   try {
-    const payload = {url:$('github-url').value, ref:$('github-ref').value || null};
+    const payload = {url:url.value, ref:ref.value || null};
     showProject(await api('/api/repositories', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}), current);
   } catch (error) {
     if (current !== generation) return;
     $('ids').textContent = 'GitHub 导入失败 · 请查看下方诊断信息';
     showError(error.message);
+  } finally {
+    if (current === generation) {
+      form.classList.remove('is-loading');
+      button.disabled = false;
+      button.textContent = '导入并分析';
+      url.readOnly = false;
+      ref.readOnly = false;
+      status.hidden = true;
+    }
   }
 };
 $('build').onclick = async () => {
