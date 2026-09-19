@@ -93,10 +93,20 @@ def clone_public_github_repository(url: str, target: Path, ref: str | None = Non
         if completed.returncode:
             raise RuntimeError("GitHub 仓库下载失败，请确认仓库公开、地址及 Branch / Tag / Commit 正确")
 
-    run(["git", "-c", "protocol.file.allow=never", "clone", "--depth", "1", "--no-tags", normalized, str(project)])
     if ref:
-        run(["git", "-C", str(project), "-c", "protocol.file.allow=never", "fetch", "--depth", "1", "origin", ref])
+        # Fetch the requested ref into a fresh repository instead of first
+        # shallow-cloning the default branch. A depth-1 clone implicitly
+        # configures a single-branch refspec on some Git versions, which can
+        # make a later fetch of another branch fail on Windows.
+        run(["git", "init", str(project)])
+        run(["git", "-C", str(project), "remote", "add", "origin", normalized])
+        run([
+            "git", "-C", str(project), "-c", "protocol.file.allow=never",
+            "fetch", "--depth", "1", "--no-tags", "origin", ref,
+        ])
         run(["git", "-C", str(project), "checkout", "--detach", "FETCH_HEAD"])
+    else:
+        run(["git", "-c", "protocol.file.allow=never", "clone", "--depth", "1", "--no-tags", normalized, str(project)])
 
     _check_repository_tree(project)
     shutil.rmtree(project / ".git", ignore_errors=True)
