@@ -170,6 +170,58 @@ class AccountStore:
                 db.execute("UPDATE users SET quota_used=quota_used+1 WHERE id=?", (user_id,))
         return self.get_user(user_id)
 
+    def list_users(self, limit: int = 200) -> list[dict]:
+        limit = max(1, min(int(limit), 1000))
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [self._public(row) | {"disabled": bool(row["disabled"])} for row in rows]
+
+    def set_disabled(self, user_id: str, disabled: bool) -> dict:
+        with self.connect() as db:
+            row = db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+            db.execute("UPDATE users SET disabled=? WHERE id=?", (1 if disabled else 0, user_id))
+            if disabled:
+                db.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        result = self._public(row)
+        result["disabled"] = bool(row["disabled"])
+        return result
+
+    def reset_quota(self, user_id: str) -> dict:
+        with self.connect() as db:
+            row = db.execute("SELECT plan FROM users WHERE id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+            if row["plan"] == "TEST":
+                db.execute("UPDATE users SET quota_used=0 WHERE id=?", (user_id,))
+            else:
+                db.execute("UPDATE users SET quota_total=3, quota_used=0 WHERE id=?", (user_id,))
+        return self.get_user(user_id)
+
+    def refund_build(self, user_id: str) -> dict | None:
+        with self.connect() as db:
+            row = db.execute("SELECT plan,quota_used FROM users WHERE id=?", (user_id,)).fetchone()
+            if not row:
+                return None
+            if row["plan"] != "TEST" and row["quota_used"] > 0:
+                db.execute("UPDATE users SET quota_used=quota_used-1 WHERE id=?", (user_id,))
+        return self.get_user(user_id)
+
+    def set_plan_by_id(self, user_id: str, plan: str) -> dict:
+        plan = (plan or "").strip().upper()
+        if plan not in {"FREE", "TEST"}:
+            raise ValueError("当前仅支持 FREE 或 TEST 套餐")
+        with self.connect() as db:
+            row = db.execute("SELECT email FROM users WHERE id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+        return self.set_plan(row["email"], plan)
+
     def set_plan(self, email: str, plan: str) -> dict:
         email = self.normalize_email(email)
         plan = (plan or "").strip().upper()
