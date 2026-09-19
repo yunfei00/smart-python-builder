@@ -227,6 +227,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         with lock:
             if job.get('cancel_requested'):
                 job.update(status='CANCELED', error='Build cancelled by user', terminal=True)
+                owner_id = job.get('owner_id')
+                if owner_id:
+                    accounts.refund_build(owner_id)
+                futures.pop(job_id, None)
                 persist(job)
                 return
             job['status'] = 'BUILDING'
@@ -250,7 +254,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             builder.on_state = state_changed
             builder.web_job_id = job_id
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
-            job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
+            job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file), attempts=result.attempts)
             if result.status == 'CANCELED' or job.get('cancel_requested'):
                 job.update(status='CANCELED', error='Build cancelled by user')
             elif result.build.success:
