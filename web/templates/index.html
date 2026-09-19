@@ -7,7 +7,7 @@
   <meta name="user-csrf" content="{{ user.csrf if user else '' }}">
   <title>Smart Python Builder · Python 一键生成 Windows 应用</title>
   <link rel="stylesheet" href="/static/app.css?v=1.2.1-job-actions">
-  <script src="/static/home.js?v=1.2.1-job-actions" defer></script>
+  <script src="/static/home.js?v=1.2.1-cancel-build" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -71,7 +71,7 @@
     <div class="section-heading"><span class="step-number">03</span><div><h2>构建与下载</h2><p>构建开始后，你可以在这里查看实时状态。</p></div></div>
     <div class="build-status"><div class="status-orb"><span></span></div><div><p id="status" class="status" role="status">等待项目</p><p id="ids" class="meta">上传项目后开始构建</p></div></div>
     <div class="build-track"><span></span></div>
-    <div class="actions"><button id="download" disabled>下载应用（构建完成后可用）</button></div>
+    <div class="actions"><button id="download" disabled>下载应用（构建完成后可用）</button><button id="cancel-build" class="secondary" hidden>取消当前构建</button></div>
     <details class="advanced progress-details"><summary>高级日志</summary><pre id="log">上传程序后，构建日志将显示在这里。</pre></details>
   </section>
   <p id="error" role="alert"></p>
