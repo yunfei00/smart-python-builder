@@ -103,6 +103,15 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.post('/api/admin/users/{user_id}/quota', dependencies=[Depends(admin)])
+    def set_user_quota(user_id: str, payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.set_remaining_quota(user_id, payload.get('remaining'))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post('/api/admin/users/{user_id}/quota/reset', dependencies=[Depends(admin)])
     def reset_user_quota(user_id: str):
         if accounts is None:
