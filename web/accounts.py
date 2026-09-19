@@ -195,6 +195,24 @@ class AccountStore:
         result["disabled"] = bool(row["disabled"])
         return result
 
+    def set_remaining_quota(self, user_id: str, remaining: int) -> dict:
+        if type(remaining) is not int or not 0 <= remaining <= 1_000_000:
+            raise ValueError("剩余额度必须是 0–1000000 的整数")
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT plan,quota_used FROM users WHERE id=?", (user_id,)
+            ).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+            if row["plan"] == "TEST":
+                raise ValueError("TEST 账号为无限额度，请先切换为 FREE")
+            quota_total = row["quota_used"] + remaining
+            db.execute(
+                "UPDATE users SET quota_total=? WHERE id=?",
+                (quota_total, user_id),
+            )
+        return self.get_user(user_id, include_disabled=True)
+
     def reset_quota(self, user_id: str) -> dict:
         with self.connect() as db:
             row = db.execute("SELECT plan FROM users WHERE id=?", (user_id,)).fetchone()
