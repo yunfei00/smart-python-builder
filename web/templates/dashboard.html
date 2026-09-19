@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>我的工作台 · Smart Python Builder</title>
+  <link rel="stylesheet" href="/static/app.css?v=1.2.0-quota-gate">
+</head>
+<body>
+<main class="shell">
+  <header class="header">
+    <a class="brand" href="/"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Python → Windows</small></span></a>
+    <nav><a href="/">新建构建</a><a href="/dashboard">我的工作台</a><form method="post" action="/account/logout" class="inline-form"><input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="secondary compact-button">退出</button></form></nav>
+  </header>
+
+  <section class="workspace-hero">
+    <div><span class="eyebrow">YOUR WORKSPACE</span><h1>欢迎回来，{{ user.email.split('@')[0] }}</h1><p>{{ user.email }}</p></div>
+    {% if import_blocked %}<span class="button disabled-link">额度不足，无法新建构建</span>{% else %}<a class="button" href="/#builder">+ 新建 Windows 构建</a>{% endif %}
+  </section>
+
+  <section class="workspace-stats">
+    <article><small>当前套餐</small><strong>{{ user.plan }}</strong><span>{{ '内部测试账号' if user.quota_unlimited else '免费体验计划' }}</span></article>
+    <article><small>剩余额度</small><strong>{{ '∞' if user.quota_unlimited else user.quota_remaining }}</strong><span>{{ '无限构建，不扣减额度' if user.quota_unlimited else '共 ' ~ user.quota_total ~ ' 次免费构建' }}</span></article>
+    <article><small>已使用</small><strong>{{ user.quota_used }}</strong><span>构建任务</span></article>
+    <article><small>历史任务</small><strong>{{ jobs|length }}</strong><span>当前账户</span></article>
+  </section>
+
+  <section class="builder-card">
+    <div class="workspace-title"><div><h2>最近构建</h2><p>这里会保存你在当前服务中的构建记录。</p></div>{% if import_blocked %}<span class="workspace-disabled-link">没有可用额度</span>{% else %}<a href="/#builder">新建构建 →</a>{% endif %}</div>
+    {% if import_blocked %}<div class="quota-warning workspace-warning"><strong>当前不能创建新的 READY 项目</strong><span>{% if user.quota_remaining <= 0 %}免费构建额度已经用完。{% else %}剩余额度已被现有 READY 项目占用，请先完成已有项目。{% endif %}</span></div>{% endif %}
+    {% if jobs %}
+      <div class="job-list">
+      {% for job in jobs %}
+        <a class="job-row" href="/?job={{ job.id }}">
+          <span class="job-source">{{ 'GH' if job.source_type == 'github' else 'PY' }}</span>
+          <span class="job-main"><strong>{{ job.project_name }}</strong><small>{{ job.source_label }}</small></span>
+          <span class="job-status status-{{ job.status|lower }}">{{ job.status }}</span>
+          <span class="job-time">{{ job.created_label }}</span>
+          <span class="job-open">→</span>
+        </a>
+      {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state"><span>◇</span><h3>还没有构建记录</h3><p>从一个 Python 文件、ZIP 项目或 GitHub 仓库开始。</p><a class="button" href="/#builder">创建第一个构建</a></div>
+    {% endif %}
+  </section>
+
+  <footer><div class="brand footer-brand"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Build Python. Ship Windows.</small></span></div><p>构建文件会定期清理，请及时下载。</p></footer>
+</main>
+</body>
+</html>

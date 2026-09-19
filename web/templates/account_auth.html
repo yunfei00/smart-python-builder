@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ '注册' if mode == 'register' else '登录' }} · Smart Python Builder</title>
+  <link rel="stylesheet" href="/static/app.css?v=1.2.0">
+</head>
+<body>
+<main class="shell account-shell">
+  <header class="header">
+    <a class="brand" href="/"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Python → Windows</small></span></a>
+    <a href="/" class="nav-link">返回首页</a>
+  </header>
+  <section class="account-card">
+    <span class="eyebrow">{{ 'CREATE ACCOUNT' if mode == 'register' else 'WELCOME BACK' }}</span>
+    <h1>{{ '创建免费账户' if mode == 'register' else '登录 Smart Python Builder' }}</h1>
+    <p>{{ '注册后获得 3 次免费构建额度，并保存你的构建记录。' if mode == 'register' else '继续管理你的项目、构建记录和免费额度。' }}</p>
+    <form method="post" action="/account/{{ mode }}">
+      <label for="email">邮箱</label>
+      <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required value="{{ email or '' }}" placeholder="you@example.com">
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if mode == 'register' else 'current-password' }}" minlength="8" maxlength="128" required placeholder="至少 8 个字符">
+      <div class="actions"><button>{{ '免费注册' if mode == 'register' else '登录' }}</button></div>
+    </form>
+    {% if error %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
+    <p class="account-switch">
+      {% if mode == 'register' %}已有账户？ <a href="/account/login">直接登录</a>{% else %}还没有账户？ <a href="/account/register">免费注册</a>{% endif %}
+    </p>
+  </section>
+</main>
+</body>
+</html>
