@@ -6,8 +6,8 @@
   <meta name="description" content="Smart Python Builder：上传 Python 项目，自动分析依赖并生成 Windows 应用。">
   <meta name="user-csrf" content="{{ user.csrf if user else '' }}">
   <title>Smart Python Builder · Python 一键生成 Windows 应用</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.2.0-progress-zero">
-  <script src="/static/home.js?v=1.2.0-progress-visibility" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v=1.2.0-import-feedback">
+  <script src="/static/home.js?v=1.2.0-import-feedback" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -49,7 +49,11 @@
         <div class="option-icon github-icon">&lt;/&gt;</div><h3>从 GitHub 导入</h3><p>粘贴公开仓库地址，直接拉取项目并分析。</p>
         <input id="github-url" aria-label="GitHub 仓库地址" type="url" placeholder="https://github.com/owner/repository" required {% if import_blocked %}disabled{% endif %}>
         <input id="github-ref" aria-label="Branch Tag Commit" type="text" placeholder="Branch / Tag / Commit（可选）" {% if import_blocked %}disabled{% endif %}>
-        <button {% if import_blocked %}disabled{% endif %}>导入并分析</button>
+        <button id="github-import-button" {% if import_blocked %}disabled{% endif %}>导入并分析</button>
+        <div id="github-import-status" class="import-loading" role="status" aria-live="polite" hidden>
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <span><strong>正在导入 GitHub 仓库…</strong><small>下载并分析项目可能需要几十秒，请不要重复点击。</small></span>
+        </div>
       </form>
     </div>
     <p class="privacy-note">🔒 当前仅支持公开 github.com HTTPS 仓库，不递归拉取 submodule。构建文件会定期清理，请及时下载。</p>
