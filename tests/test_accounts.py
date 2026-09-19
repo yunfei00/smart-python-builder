@@ -1,4 +1,8 @@
 import io
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,3 +191,155 @@ def test_test_account_can_create_more_than_free_ready_limit(tmp_path):
                 files={"file": (f"job{index}.py", io.BytesIO(b"print('test')"), "text/x-python")},
             )
             assert response.status_code == 200
+
+
+def _registered_client(app, client, email='jobs@example.com'):
+    response = client.post(
+        '/account/register',
+        data={'email': email, 'password': 'password123'},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    token = client.cookies.get('builder_user')
+    session = app.state.accounts.session(token)
+    return session, {'X-CSRF-Token': session['csrf']}
+
+
+def test_user_can_delete_ready_project_and_release_reserved_slot(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        user, headers = _registered_client(app, client)
+        response = client.post(
+            '/api/uploads',
+            files={'file': ('delete-me.py', io.BytesIO(b"print('ok')"), 'text/x-python')},
+        )
+        assert response.status_code == 200
+        job = response.json()
+        assert job['status'] == 'READY'
+        source = Path(job['source'])
+        metadata = tmp_path / f"{job['id']}.json"
+        assert source.exists()
+        assert metadata.exists()
+
+        deleted = client.delete(f"/api/jobs/{job['id']}", headers=headers)
+        assert deleted.status_code == 200
+        assert deleted.json()['deleted'] is True
+        assert job['id'] not in app.state.jobs
+        assert not metadata.exists()
+        assert not (tmp_path / 'uploads' / job['id']).exists()
+
+        # Deleting READY must release its reserved import slot without consuming quota.
+        account = app.state.accounts.get_user(user['id'])
+        assert account['quota_remaining'] == 3
+        replacement = client.post(
+            '/api/uploads',
+            files={'file': ('replacement.py', io.BytesIO(b"print('ok')"), 'text/x-python')},
+        )
+        assert replacement.status_code == 200
+
+
+def test_delete_rejects_another_users_project(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as owner:
+        first, _ = _registered_client(app, owner, 'owner@example.com')
+        job = owner.post(
+            '/api/uploads',
+            files={'file': ('private.py', io.BytesIO(b"print('private')"), 'text/x-python')},
+        ).json()
+
+    with TestClient(app) as other:
+        _, headers = _registered_client(app, other, 'other@example.com')
+        response = other.delete(f"/api/jobs/{job['id']}", headers=headers)
+        assert response.status_code == 404
+        assert job['id'] in app.state.jobs
+
+
+def test_user_can_cancel_running_build_then_delete_it(tmp_path):
+    class Plan:
+        def to_dict(self):
+            return {'entry_point': 'demo.py', 'mode': 'onefile', 'app_type': 'cli'}
+
+    class SlowBuilder:
+        started = threading.Event()
+
+        def __init__(self, workspace_root):
+            self.workspace_root = Path(workspace_root)
+            self.engine = SimpleNamespace(on_created=None)
+            self.on_state = None
+            self.web_job_id = None
+            self.cancelled = threading.Event()
+
+        def cancel(self):
+            self.cancelled.set()
+
+        def build(self, source, *, entry_point=None, mode='onefile'):
+            build_id = 'b' * 32
+            workspace = self.workspace_root / build_id
+            workspace.mkdir(parents=True, exist_ok=True)
+            log_file = workspace / 'build.log'
+            log_file.write_text('fake build running\n', encoding='utf-8')
+            if self.engine.on_created:
+                self.engine.on_created(build_id, log_file)
+            SlowBuilder.started.set()
+            self.cancelled.wait(timeout=5)
+            build = SimpleNamespace(
+                build_id=build_id,
+                success=False,
+                workspace=workspace,
+                artifact=None,
+                log_file=log_file,
+                error='Build cancelled by user',
+            )
+            return SimpleNamespace(
+                build=build,
+                plan=Plan(),
+                status='CANCELED',
+                attempts=[],
+            )
+
+    app = create_app(tmp_path, builder_factory=SlowBuilder)
+    with TestClient(app) as client:
+        user, headers = _registered_client(app, client, 'cancel@example.com')
+        source = tmp_path / 'demo.py'
+        source.write_text("print('demo')", encoding='utf-8')
+        job_id = 'a' * 32
+        app.state.jobs[job_id] = {
+            'id': job_id,
+            'status': 'READY',
+            'source': str(source),
+            'entries': ['demo.py'],
+            'entry': 'demo.py',
+            'dependencies': [],
+            'dependency_source': None,
+            'plan': None,
+            'created_at': time.time(),
+            'terminal': False,
+            'source_type': 'upload',
+            'owner_id': user['id'],
+            'project_name': 'demo',
+        }
+
+        started = client.post(
+            f'/api/jobs/{job_id}/build',
+            data={'entry': 'demo.py', 'mode': 'onefile'},
+            headers=headers,
+        )
+        assert started.status_code == 200
+        assert SlowBuilder.started.wait(timeout=2)
+
+        canceled = client.post(f'/api/jobs/{job_id}/cancel', headers=headers)
+        assert canceled.status_code == 200
+        assert canceled.json()['status'] in {'CANCELING', 'CANCELED'}
+
+        deadline = time.time() + 3
+        while time.time() < deadline and not app.state.jobs[job_id].get('terminal'):
+            time.sleep(0.05)
+        assert app.state.jobs[job_id]['status'] == 'CANCELED'
+        assert app.state.jobs[job_id]['terminal'] is True
+        # A running build has already consumed resources, so its FREE quota is not refunded.
+        assert app.state.accounts.get_user(user['id'])['quota_remaining'] == 2
+
+        deleted = client.delete(f'/api/jobs/{job_id}', headers=headers)
+        assert deleted.status_code == 200
+        assert job_id not in app.state.jobs
+        assert not (tmp_path / 'workspace' / ('b' * 32)).exists()
