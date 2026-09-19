@@ -58,7 +58,7 @@ function showProject(next, current) {
   if (current !== generation) return;
   clearError();
   job = next; $('ids').textContent = '项目分析完成 · 任务 ' + job.id; $('log').textContent = '等待构建开始。';
-  $('project').hidden = false; $('entry').replaceChildren();
+  $('project').hidden = false; $('progress').hidden = false; $('entry').replaceChildren();
   if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
   for (const value of job.entries) $('entry').add(new Option(value, value));
   $('dependencies').textContent = '✓ 依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
@@ -68,7 +68,7 @@ function showProject(next, current) {
 }
 function beginImport() {
   const current = ++generation;
-  clearError(); $('project').hidden = true;
+  clearError(); $('project').hidden = true; $('progress').hidden = true;
   $('progress').classList.remove('is-success', 'is-failed');
   $('ids').textContent = '正在分析项目结构和依赖…';
   renderStatus({status:'READY'});
@@ -138,4 +138,4 @@ $('upload-file')?.addEventListener('change', renderSelectedFile);
 renderSelectedFile();
 renderStatus({status:'READY'});
 const existing = new URLSearchParams(location.search).get('job');
-if (existing) { job = {id:existing}; poll(existing, generation); }
+if (existing) { $('progress').hidden = false; job = {id:existing}; poll(existing, generation); }
