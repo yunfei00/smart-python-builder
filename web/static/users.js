@@ -36,6 +36,10 @@ function renderUsers(users) {
       '<div class="admin-user-metric"><small>已使用</small><b>'+escapeHtml(user.quota_used)+'</b></div>'+
       '<div class="admin-user-state '+(disabled?'disabled':'enabled')+'">'+(disabled?'已停用':'正常')+'</div>'+
       '<div class="admin-user-actions">'+
+        '<div class="quota-editor">'+
+          '<input type="number" min="0" max="1000000" step="1" value="'+(user.quota_unlimited?'':escapeHtml(user.quota_remaining))+'" placeholder="'+(user.quota_unlimited?'∞':'次数')+'" '+(user.quota_unlimited?'disabled':'')+' aria-label="设置剩余额度">'+
+          '<button class="secondary compact-button" data-action="quota" '+(user.quota_unlimited?'disabled':'')+'>设置额度</button>'+
+        '</div>'+
         '<button class="secondary compact-button" data-action="plan" data-plan="'+(user.plan==='TEST'?'FREE':'TEST')+'">'+(user.plan==='TEST'?'转为 FREE':'设为 TEST')+'</button>'+
         '<button class="secondary compact-button" data-action="reset">重置额度</button>'+
         '<button class="secondary compact-button danger-button" data-action="disabled" data-disabled="'+(!disabled)+'">'+(disabled?'启用账号':'停用账号')+'</button>'+
@@ -60,7 +64,17 @@ userRoot.addEventListener('click', async event => {
   const userId = card.dataset.user;
   button.disabled = true;
   try {
-    if (button.dataset.action === 'plan') {
+    if (button.dataset.action === 'quota') {
+      const input = card.querySelector('.quota-editor input');
+      const remaining = Number(input.value);
+      if (!Number.isInteger(remaining) || remaining < 0 || remaining > 1000000) {
+        throw Error('请输入 0–1000000 的整数额度');
+      }
+      await api('/api/admin/users/'+encodeURIComponent(userId)+'/quota', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({remaining})
+      });
+    } else if (button.dataset.action === 'plan') {
       await api('/api/admin/users/'+encodeURIComponent(userId)+'/plan', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({plan:button.dataset.plan})
