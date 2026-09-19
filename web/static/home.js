@@ -44,6 +44,14 @@ async function api(url, options = {}) {
 function renderStatus(value) {
   const ready = value.status === 'SUCCESS' && value.terminal === true && value.artifact_available === true;
   const failed = ['FAILED','NEEDS_MANUAL_REVIEW','EXPIRED'].includes(value.status);
+  const active = ['QUEUED','BUILDING','AI_DIAGNOSING','AI_REPAIRING','REBUILDING','CANCELING'].includes(value.status);
+  const cancel = $('cancel-build');
+  if (cancel) {
+    const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+    cancel.hidden = !active || !loggedIn;
+    cancel.disabled = value.status === 'CANCELING';
+    cancel.textContent = value.status === 'CANCELING' ? '正在取消…' : '取消当前构建';
+  }
   $('download').disabled = !ready;
   $('download').textContent = ready ? '下载 Windows 应用 ↓' : '下载应用（构建完成后可用）';
   $('download').onclick = ready ? () => { window.location.href = '/api/jobs/' + encodeURIComponent(value.id) + '/download'; } : null;
@@ -153,6 +161,21 @@ async function preview() {
     $('plan').textContent = JSON.stringify(plan, null, 2); $('type').textContent = '✓ 应用类型：' + (plan.app_type === 'gui' ? '图形界面应用' : '控制台应用');
   } catch (error) { showError(error.message); }
 }
+$('cancel-build')?.addEventListener('click', async () => {
+  if (!job?.id || !confirm('确定取消当前构建吗？正在执行的打包进程会被终止。')) return;
+  const button = $('cancel-build');
+  button.disabled = true;
+  button.textContent = '正在取消…';
+  try {
+    const result = await api('/api/jobs/' + encodeURIComponent(job.id) + '/cancel', {method:'POST'});
+    renderStatus({...result, terminal:false, artifact_available:false});
+    poll(job.id, generation);
+  } catch (error) {
+    showError(error.message);
+    button.disabled = false;
+    button.textContent = '取消当前构建';
+  }
+});
 $('entry').onchange = preview; $('mode').onchange = preview;
 $('upload-file')?.addEventListener('change', renderSelectedFile);
 renderSelectedFile();
