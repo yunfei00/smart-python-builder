@@ -130,7 +130,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     app.state.experience_store = store
     app.state.settings = settings
     app.state.accounts = accounts
-    admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory)
+    admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory, accounts=accounts)
 
     @app.get('/api/admin/experiences', dependencies=[Depends(admin)])
     def candidates():
