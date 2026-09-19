@@ -100,9 +100,12 @@ class AccountStore:
             return None
         return self._public(row)
 
-    def get_user(self, user_id: str) -> dict | None:
+    def get_user(self, user_id: str, *, include_disabled: bool = False) -> dict | None:
         with self.connect() as db:
-            row = db.execute("SELECT * FROM users WHERE id=? AND disabled=0", (user_id,)).fetchone()
+            if include_disabled:
+                row = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            else:
+                row = db.execute("SELECT * FROM users WHERE id=? AND disabled=0", (user_id,)).fetchone()
         return self._public(row) if row else None
 
     @staticmethod
@@ -201,7 +204,7 @@ class AccountStore:
                 db.execute("UPDATE users SET quota_used=0 WHERE id=?", (user_id,))
             else:
                 db.execute("UPDATE users SET quota_total=3, quota_used=0 WHERE id=?", (user_id,))
-        return self.get_user(user_id)
+        return self.get_user(user_id, include_disabled=True)
 
     def refund_build(self, user_id: str) -> dict | None:
         with self.connect() as db:
@@ -241,7 +244,7 @@ class AccountStore:
                     "UPDATE users SET plan='FREE', quota_total=3, quota_used=0 WHERE email=?",
                     (email,),
                 )
-        return self.get_user(row["id"])
+        return self.get_user(row["id"], include_disabled=True)
 
 
 def _cli() -> int:
