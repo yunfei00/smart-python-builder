@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>我的工作台 · Smart Python Builder</title>
+  <link rel="stylesheet" href="/static/app.css?v=1.2.0">
+</head>
+<body>
+<main class="shell">
+  <header class="header">
+    <a class="brand" href="/"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Python → Windows</small></span></a>
+    <nav><a href="/">新建构建</a><a href="/dashboard">我的工作台</a><form method="post" action="/account/logout" class="inline-form"><input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="secondary compact-button">退出</button></form></nav>
+  </header>
+
+  <section class="workspace-hero">
+    <div><span class="eyebrow">YOUR WORKSPACE</span><h1>欢迎回来，{{ user.email.split('@')[0] }}</h1><p>{{ user.email }}</p></div>
+    <a class="button" href="/#builder">+ 新建 Windows 构建</a>
+  </section>
+
+  <section class="workspace-stats">
+    <article><small>当前套餐</small><strong>{{ user.plan }}</strong><span>免费体验计划</span></article>
+    <article><small>剩余额度</small><strong>{{ user.quota_remaining }}</strong><span>共 {{ user.quota_total }} 次免费构建</span></article>
+    <article><small>已使用</small><strong>{{ user.quota_used }}</strong><span>构建任务</span></article>
+    <article><small>历史任务</small><strong>{{ jobs|length }}</strong><span>当前账户</span></article>
+  </section>
+
+  <section class="builder-card">
+    <div class="workspace-title"><div><h2>最近构建</h2><p>这里会保存你在当前服务中的构建记录。</p></div><a href="/#builder">新建构建 →</a></div>
+    {% if jobs %}
+      <div class="job-list">
+      {% for job in jobs %}
+        <a class="job-row" href="/?job={{ job.id }}">
+          <span class="job-source">{{ 'GH' if job.source_type == 'github' else 'PY' }}</span>
+          <span class="job-main"><strong>{{ job.project_name }}</strong><small>{{ job.source_label }}</small></span>
+          <span class="job-status status-{{ job.status|lower }}">{{ job.status }}</span>
+          <span class="job-time">{{ job.created_label }}</span>
+          <span class="job-open">→</span>
+        </a>
+      {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state"><span>◇</span><h3>还没有构建记录</h3><p>从一个 Python 文件、ZIP 项目或 GitHub 仓库开始。</p><a class="button" href="/#builder">创建第一个构建</a></div>
+    {% endif %}
+  </section>
+
+  <footer><div class="brand footer-brand"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Build Python. Ship Windows.</small></span></div><p>构建文件会定期清理，请及时下载。</p></footer>
+</main>
+</body>
+</html>
