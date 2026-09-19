@@ -164,11 +164,10 @@ class AccountStore:
             ).fetchone()
             if not row:
                 raise ValueError("用户不存在")
-            if row["plan"] == "TEST":
-                return self.get_user(user_id)
-            if row["quota_used"] >= row["quota_total"]:
-                raise ValueError("免费构建额度已用完")
-            db.execute("UPDATE users SET quota_used=quota_used+1 WHERE id=?", (user_id,))
+            if row["plan"] != "TEST":
+                if row["quota_used"] >= row["quota_total"]:
+                    raise ValueError("免费构建额度已用完")
+                db.execute("UPDATE users SET quota_used=quota_used+1 WHERE id=?", (user_id,))
         return self.get_user(user_id)
 
     def set_plan(self, email: str, plan: str) -> dict:
