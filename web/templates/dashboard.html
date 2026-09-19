@@ -19,8 +19,8 @@
   </section>
 
   <section class="workspace-stats">
-    <article><small>当前套餐</small><strong>{{ user.plan }}</strong><span>免费体验计划</span></article>
-    <article><small>剩余额度</small><strong>{{ user.quota_remaining }}</strong><span>共 {{ user.quota_total }} 次免费构建</span></article>
+    <article><small>当前套餐</small><strong>{{ user.plan }}</strong><span>{{ '内部测试账号' if user.quota_unlimited else '免费体验计划' }}</span></article>
+    <article><small>剩余额度</small><strong>{{ '∞' if user.quota_unlimited else user.quota_remaining }}</strong><span>{{ '无限构建，不扣减额度' if user.quota_unlimited else '共 ' ~ user.quota_total ~ ' 次免费构建' }}</span></article>
     <article><small>已使用</small><strong>{{ user.quota_used }}</strong><span>构建任务</span></article>
     <article><small>历史任务</small><strong>{{ jobs|length }}</strong><span>当前账户</span></article>
   </section>
