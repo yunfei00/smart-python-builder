@@ -257,6 +257,15 @@ def test_admin_user_management(configured):
     listed = client.get('/api/admin/users').json()['users']
     assert {row['email'] for row in listed} >= {'free@example.com', 'test@example.com'}
 
+    quota = client.post(
+        f"/api/admin/users/{first['id']}/quota",
+        headers=headers,
+        json={'remaining': 25},
+    )
+    assert quota.status_code == 200
+    assert quota.json()['quota_remaining'] == 25
+    assert quota.json()['quota_total'] == 25
+
     changed = client.post(
         f"/api/admin/users/{first['id']}/plan",
         headers=headers,
@@ -265,6 +274,13 @@ def test_admin_user_management(configured):
     assert changed.status_code == 200
     assert changed.json()['plan'] == 'TEST'
     assert changed.json()['quota_unlimited'] is True
+    invalid_quota = client.post(
+        f"/api/admin/users/{first['id']}/quota",
+        headers=headers,
+        json={'remaining': 10},
+    )
+    assert invalid_quota.status_code == 400
+    assert 'TEST' in invalid_quota.json()['detail']
 
     disabled = client.post(
         f"/api/admin/users/{second['id']}/disabled",
