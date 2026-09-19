@@ -6,7 +6,7 @@
   <meta name="description" content="Smart Python Builder：上传 Python 项目，自动分析依赖并生成 Windows 应用。">
   <meta name="user-csrf" content="{{ user.csrf if user else '' }}">
   <title>Smart Python Builder · Python 一键生成 Windows 应用</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.2.0">
+  <link rel="stylesheet" href="/static/app.css?v=1.2.0-user-quota">
   <script src="/static/home.js?v=1.2.0-user-quota" defer></script>
 </head>
 <body>
@@ -38,7 +38,7 @@
     <div class="section-heading"><span class="step-number">01</span><div><h2>导入你的 Python 项目</h2><p>选择本地项目，或直接从公开 GitHub 仓库导入。</p></div></div>
     <div class="import-grid">
       <form id="upload" class="import-option">
-        <div class="option-icon">↑</div><h3>上传项目</h3><p>支持单个 .py 文件或 ZIP 项目，最大 20 MB。</p>
+        <div class="option-icon">↑</div><h3>上传项目</h3><p>支持单个 .py 文件或 ZIP 项目，最大 20 MB。文件夹请先压缩为 ZIP。</p>
         <label class="file-picker"><input id="upload-file" aria-label="Python 程序或 ZIP 项目" name="file" type="file" accept=".py,.zip" required><span id="upload-file-label">选择 .py / .zip 文件</span></label>
         <button>分析并继续</button>
       </form>
