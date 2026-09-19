@@ -1,7 +1,0 @@
-{
-  "status": "PASS",
-  "build_id": "67f820a2fb5340e8aef25ac12ea902fb",
-  "artifact": "D:\\code_2026\\smart-python-builder\\workspace\\67f820a2fb5340e8aef25ac12ea902fb\\project\\dist\\release-smoke.exe",
-  "exit_code": 0,
-  "stdout": "Smart Python Builder v1.0.0 smoke OK"
-}

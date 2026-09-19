@@ -1,4 +1,4 @@
-# Smart Python Builder 1.0.1
+# Smart Python Builder 1.1.0
 
 Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应用。
 面向可信内部用户：使用者通过网页上传、选择入口、生成并下载 EXE 或 ZIP，
@@ -6,7 +6,7 @@ Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应
 
 ## 支持范围
 
-- 单个 `.py` 文件，或包含多文件项目的 `.zip`。
+- 单个 `.py` 文件、包含多文件项目的 `.zip`，或直接导入公开 GitHub 仓库。
 - 控制台程序；Tkinter、PySide6、PyQt6 图形程序。
 - 初始构建经验覆盖 requests、numpy、pandas、openpyxl、OpenCV、Pillow、
   pyserial、PyYAML 及上述 GUI 库。
@@ -58,8 +58,9 @@ Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应
 
 每次构建使用独立环境和 workspace。Web 数据默认保存在 `web-data/`。
 依赖优先级：`pyproject.toml` 的明确 dependencies（包括空列表）→
-`requirements.txt` → AST import 推导。V1 的 requirements 支持普通 PyPI 依赖声明，
-不支持递归 `-r`、自定义索引、VCS 或本地路径依赖。动态导入不能完全依靠 AST 识别。
+`requirements.txt` → AST import 推导。`pyproject.toml` 支持普通 PyPI 依赖以及经过校验的
+`name @ git+https://github.com/owner/repo.git[@ref]` 公共 GitHub VCS 依赖。requirements.txt
+仍只支持普通 PyPI 声明，不支持递归 `-r`、自定义索引、VCS 或本地路径依赖。动态导入不能完全依靠 AST 识别。
 
 ## 管理员初始化与登录
 
@@ -201,11 +202,8 @@ uv run python analyze.py path\to\project
 uv run python build.py path\to\project --entry main.py
 uv run python build.py app.py --mode onedir
 uv run pytest tests -q --basetemp .pytest-tmp-check
-uv run python tests/windows_v1_acceptance.py
+uv run python tests/windows_acceptance.py
 ```
 
-[发布检查清单](docs/RELEASE_CHECKLIST_V1.md) 记录最终矩阵、Build ID、产物与运行结果。
-[实施计划](docs/IMPLEMENTATION_PLAN.md) 中 Phase 1–8 均为 CLOSED；V1 = COMPLETE。
+[发布检查清单](docs/RELEASE_CHECKLIST.md) 用于每次正式发布前的统一验证。
 FakeAIProvider/FakeNotifier 仅用于显式注入的测试；真实外部服务需自行配置并联调。
-
-[v1.0.1 开发验收记录](docs/V1_0_1_ACCEPTANCE.md) 记录 UI、登录、设置及本轮 Windows 验收；尚未 merge/tag。

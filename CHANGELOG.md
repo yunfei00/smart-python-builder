@@ -1,20 +1,22 @@
 # Changelog
 
-## 1.0.1 (development branch; not tagged)
+## 1.1.0 (2026-09-18)
 
-- Compact responsive Web header, disabled-until-ready downloads, one-time build progress scroll.
-- Password admin sessions, logout/CSRF protection, existing Bearer API compatibility.
-- SQLite settings shared with Builder AI and Feishu, Windows DPAPI secret storage.
-- AI/Feishu connection tests, explicit environment precedence, LAN/restart guidance.
-- Added settings/auth/security tests and Windows/browser acceptance.
+- Added direct import and build support for public GitHub repositories.
+- Added validated PEP 508 public GitHub VCS dependencies from `pyproject.toml`.
+- Added visible diagnostics for failures that occur before BuildEngine starts.
+- Improved GitHub import frontend cache behavior and regression-test isolation.
+- Verified direct GitHub repository builds and GitHub VCS dependency builds on Windows.
 
-## 1.0.0
+## 1.0.1 (2026-09-18)
 
-- Closed Phases 1–8 with 80 automated tests and 24/24 Windows release checks.
+- Added password-based administrator sessions, logout/CSRF protection and Bearer API compatibility.
+- Added SQLite-backed Builder, AI and Feishu settings with environment override precedence.
+- Added AI/Feishu connection tests, LAN/base-URL configuration and notification URL fixes.
+- Improved Web layout, build progress behavior and download readiness.
 
-## 0.1.0-dev1
+## 1.0.0 (2026-09-17)
 
-- Added UUID-isolated uv build workspaces.
-- Added PyInstaller one-file console/GUI builds.
-- Added persistent build logs and CLI.
-- Added Phase 1 Windows verification cases for Tkinter, third-party dependencies, and PySide6.
+- Initial complete release: isolated uv workspaces, PyInstaller builds, project analysis,
+  experience library, Web UI, bounded AI repair, Feishu notifications and administrator approval.
+- Added upload/ZIP validation, build limits, persistence/recovery and Windows acceptance coverage.

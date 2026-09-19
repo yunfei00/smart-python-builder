@@ -10,5 +10,5 @@ assert not result.success and result.artifact is None
 log=result.log_file.read_text(encoding='utf-8',errors='replace')
 assert 'SyntaxError' in log and '[exit_code=1]' in log
 record=dict(case='normal packaging failure',status='PASS',build_id=result.build_id,artifact=None,runtime_verification='Not applicable: packaging rejected invalid Python, no EXE generated',notes='Actual PyInstaller exit 1 and SyntaxError captured; build failed as expected',log=str(result.log_file))
-Path('docs/release-packaging-failure.json').write_text(json.dumps(record,indent=2),encoding='utf-8')
+root.joinpath('acceptance-result.json').write_text(json.dumps(record,indent=2),encoding='utf-8')
 print('EXPECTED PACKAGING FAILURE PASS',result.build_id)

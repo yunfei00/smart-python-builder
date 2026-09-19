@@ -71,7 +71,7 @@ try:
             if name=='notifier-outage':assert failures==['RuntimeError']
             row=dict(case=name,result='PASS',job_id=job['id'],build_id=current['build_id'],artifact=str(exe),events=events,details_url=details,runtime='exit 0; expected output verified',notification_failures=failures)
             report['cases'].append(row)
-            Path('docs/notification-url-windows.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
+            root.joinpath('acceptance-result.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
             print(json.dumps(row),flush=True)
 finally:
     server.should_exit=True;thread.join(timeout=15)

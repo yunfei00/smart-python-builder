@@ -19,6 +19,6 @@ with httpx.Client(base_url=base, timeout=30) as client:
     artifact.write_bytes(download.content)
     p=subprocess.run([str(artifact)],capture_output=True,text=True,timeout=30)
     assert p.returncode==0 and 'web-build-ok' in p.stdout,p.stderr
-    Path('docs/phase4-acceptance.json').write_text(json.dumps(dict(status='PASS',job_id=job['id'],build_id=state['build_id'],artifact=str(artifact),notes='Live HTTP upload, build, log, download; EXE exit 0: '+p.stdout),indent=2))
+    Path('.pytest-tmp-web-acceptance.json').write_text(json.dumps(dict(status='PASS',job_id=job['id'],build_id=state['build_id'],artifact=str(artifact),notes='Live HTTP upload, build, log, download; EXE exit 0: '+p.stdout),indent=2))
     assert '[exit_code=0]' in client.get('/api/jobs/'+job['id']+'/log').json()['text']
     print(state)

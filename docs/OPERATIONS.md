@@ -1,6 +1,6 @@
-# V1 deployment and security boundary
+# Deployment and security boundary
 
-Smart Python Builder V1 is a **trusted/internal Windows Builder**.
+Smart Python Builder 1.1 is a **trusted/internal Windows Builder**.
 Python projects, package installation/build backends and PyInstaller hooks can execute
 code as the worker user. Independent virtual environments isolate dependencies;
 they are not a security sandbox. Do not expose this service to anonymous or
@@ -66,18 +66,15 @@ hard per-process CPU/memory quotas.
 
 ```powershell
 uv run pytest tests -q --basetemp .pytest-tmp-check
-uv run python tests/windows_v1_acceptance.py
+uv run python tests/windows_acceptance.py
 ```
 
-`docs/v1-acceptance.json` records per-case PASS, Build ID, artifact and behavior.
-Several library cases share a combined executable; each library has an independent
-functional assertion. Console EXEs must exit 0 and satisfy output/behavior checks.
-GUI EXEs must stay alive for ten seconds before their test process tree is closed.
-Deliberate failure cases PASS when the expected failure/repair state is observed.
-FakeAIProvider and FakeNotifier are used: real AI billing/credentials and actual
-Feishu delivery are not part of offline acceptance.
+The maintained Windows acceptance script exercises representative real EXE builds and runtime checks.
+Console EXEs must exit 0 and satisfy output/behavior checks; GUI checks validate startup behavior.
+FakeAIProvider and FakeNotifier may be used only by explicit test injection; real external credentials
+must be validated separately when required for deployment.
 
-## v1.0.1 settings and administrator operations
+## Settings and administrator operations
 
 Set `BUILDER_ADMIN_PASSWORD` before the first start. `/admin/login` explicitly reports
 an uninitialized administrator if absent; there is no default password. Bootstrap
@@ -145,8 +142,6 @@ DPAPI does not change the trusted/internal deployment boundary.
    identity; `*` does not add authentication or protect an untrusted network.
 6. Set `BUILDER_BASE_URL` to the reachable internal URL for notification links.
 
-See [v1.0.1 acceptance](V1_0_1_ACCEPTANCE.md). Real AI and Feishu credentials were
-not supplied: **NOT VERIFIED WITH REAL CREDENTIALS**. No firewall changes were made.
 
 ## Notification and external URL follow-up
 
