@@ -158,6 +158,29 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 raise HTTPException(404, '任务不存在')
         return job
 
+    def import_slots(user):
+        """How many additional READY jobs this account may create.
+
+        FREE quota is consumed when a build starts. READY jobs therefore reserve
+        one future build slot so users cannot upload projects they will be unable
+        to start later. TEST accounts and guests are currently unlimited here.
+        """
+        if not user or user.get('quota_unlimited'):
+            return None
+        ready_jobs = sum(
+            item.get('owner_id') == user['id'] and item.get('status') == 'READY'
+            for item in jobs.values()
+        )
+        return max(0, user['quota_remaining'] - ready_jobs)
+
+    def ensure_import_slot(user):
+        slots = import_slots(user)
+        if slots is None or slots > 0:
+            return
+        if user and user['quota_remaining'] <= 0:
+            raise HTTPException(402, '免费构建额度已用完，当前不能再导入新项目')
+        raise HTTPException(402, '当前剩余额度已被待构建项目占用，请先完成已有 READY 项目后再导入')
+
     def run_job(job_id, entry, mode):
         job = get_job(job_id)
         job['status'] = 'BUILDING'
@@ -198,7 +221,17 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.get('/', response_class=HTMLResponse)
     def home(request: Request):
-        return templates.TemplateResponse(request=request, name='index.html', context={'user': account_session(request)})
+        user = account_session(request)
+        slots = import_slots(user)
+        return templates.TemplateResponse(
+            request=request,
+            name='index.html',
+            context={
+                'user': user,
+                'import_slots': slots,
+                'import_blocked': user is not None and slots == 0,
+            },
+        )
 
     def account_page(request, mode, error='', email=''):
         user = account_session(request)
@@ -278,9 +311,15 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             entry['source_label'] = entry.get('repository_url') or ('本地上传 · ' + (entry.get('dependency_source') or 'Python'))
             entry['created_label'] = time.strftime('%m-%d %H:%M', time.localtime(entry.get('created_at', time.time())))
             owned.append(entry)
+        slots = import_slots(user)
         return templates.TemplateResponse(
             request=request, name='dashboard.html',
-            context={'user': user, 'jobs': owned[:30]},
+            context={
+                'user': user,
+                'jobs': owned[:30],
+                'import_slots': slots,
+                'import_blocked': slots == 0,
+            },
             headers={'Cache-Control': 'no-store'},
         )
 
@@ -293,6 +332,9 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.post('/api/uploads')
     async def upload(request: Request, file: UploadFile = File(...)):
+        user = account_session(request)
+        with lock:
+            ensure_import_slot(user)
         data = await file.read(MAX_UPLOAD + 1)
         job_id = uuid.uuid4().hex
         upload_dir = root / 'uploads' / job_id
@@ -306,18 +348,27 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
                 shutil.rmtree(upload_dir.resolve())
             raise HTTPException(400, str(exc)) from exc
-        user = account_session(request)
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
                    source_type='upload', owner_id=user['id'] if user else None,
                    project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project')
-        jobs[job_id] = job
-        persist(job)
+        try:
+            with lock:
+                ensure_import_slot(user)
+                jobs[job_id] = job
+                persist(job)
+        except HTTPException:
+            if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
+                shutil.rmtree(upload_dir.resolve())
+            raise
         return job
 
     @app.post('/api/repositories')
     def import_repository(request: Request, payload: dict):
+        user = account_session(request)
+        with lock:
+            ensure_import_slot(user)
         job_id = uuid.uuid4().hex
         upload_dir = root / 'uploads' / job_id
         try:
@@ -338,10 +389,17 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
                    source_type='github', repository_url=payload.get('url', '').strip(), repository_ref=(payload.get('ref') or '').strip() or None,
-                   owner_id=(account_session(request) or {}).get('id'),
+                   owner_id=user['id'] if user else None,
                    project_name=(payload.get('url', '').rstrip('/').rsplit('/', 1)[-1].removesuffix('.git') or 'GitHub project')[:120])
-        jobs[job_id] = job
-        persist(job)
+        try:
+            with lock:
+                ensure_import_slot(user)
+                jobs[job_id] = job
+                persist(job)
+        except HTTPException:
+            if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
+                shutil.rmtree(upload_dir.resolve())
+            raise
         return job
 
     @app.get('/api/jobs/{job_id}/plan')
