@@ -9,6 +9,26 @@ function showError(message) {
   $('error').textContent = message || '操作失败，请重试';
   $('error').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+function renderSelectedFile() {
+  const input = $('upload-file');
+  const label = $('upload-file-label');
+  if (!input || !label) return;
+  const file = input.files?.[0];
+  if (!file) {
+    label.textContent = '选择 .py / .zip 文件';
+    label.classList.remove('has-file');
+    label.title = '';
+    return;
+  }
+  label.textContent = file.name + ' · ' + formatFileSize(file.size);
+  label.classList.add('has-file');
+  label.title = file.name;
+}
 async function api(url, options = {}) {
   const csrf = document.querySelector('meta[name="user-csrf"]')?.content;
   const method = (options.method || 'GET').toUpperCase();
@@ -114,5 +134,7 @@ async function preview() {
   } catch (error) { showError(error.message); }
 }
 $('entry').onchange = preview; $('mode').onchange = preview;
+$('upload-file')?.addEventListener('change', renderSelectedFile);
+renderSelectedFile();
 const existing = new URLSearchParams(location.search).get('job');
 if (existing) { job = {id:existing}; poll(existing, generation); }
