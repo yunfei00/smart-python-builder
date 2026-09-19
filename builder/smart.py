@@ -51,6 +51,9 @@ class SmartBuilder:
         self.experience_store = experience_store or ExperienceStore(self.engine.workspace_root / 'experiences.sqlite3')
         self.experiences.store = self.experience_store
 
+    def cancel(self) -> None:
+        self.engine.cancel()
+
     @property
     def details_url(self):
         return self.notification_links()['details_url']
@@ -99,6 +102,9 @@ class SmartBuilder:
                     with result.log_file.open('a', encoding='utf-8') as log:
                         log.write('\nArtifact validation failed: ' + str(exc))
             attempts.append(dict(number=attempt+1, build_id=result.build_id, success=result.success, error=result.error, plan=plan.to_dict()))
+            if result.error == 'Build cancelled by user':
+                transition('CANCELED')
+                break
             if result.success:
                 transition('SUCCESS')
                 if attempt == 0:
