@@ -48,6 +48,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             return builder_factory(root / 'workspace', settings_store=settings)
         return builder_factory(root / 'workspace')
     jobs = {}
+    futures = {}
+    active_builders = {}
     lock = threading.RLock()
     pool = ThreadPoolExecutor(max_workers=1)
     templates = Jinja2Templates(directory=str(Path(__file__).parent / 'templates'))
@@ -64,7 +66,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             job = json.loads(saved.read_text(encoding='utf-8'))
             if saved.stem != job['id'] or len(job['id']) != 32:
                 continue
-            if (job['status'] != 'READY' and not job.get('terminal', True)) or job['status'] not in {'READY','SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED'}:
+            if job.get('status') == 'CANCELING':
+                job.update(status='CANCELED', error='Build cancelled before service restart completed', terminal=True)
+                persist(job)
+            elif (job['status'] != 'READY' and not job.get('terminal', True)) or job['status'] not in {'READY','SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED','CANCELED'}:
                 job.update(status='NEEDS_MANUAL_REVIEW', error='Service restarted while task was active', terminal=True)
                 build_id = job.get('build_id', '')
                 if re.fullmatch('[a-f0-9]{32}', build_id):
@@ -158,6 +163,42 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 raise HTTPException(404, '任务不存在')
         return job
 
+    def get_owned_job(job_id, request: Request):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录')
+        job = get_job(job_id)
+        if job.get('owner_id') != user['id']:
+            raise HTTPException(404, '任务不存在')
+        return job, user
+
+    def remove_job_files(job):
+        job_id = job['id']
+        upload_dir = root / 'uploads' / job_id
+        if (
+            re.fullmatch('[a-f0-9]{32}', job_id)
+            and upload_dir.exists()
+            and not upload_dir.is_symlink()
+            and upload_dir.resolve().parent == (root / 'uploads').resolve()
+        ):
+            shutil.rmtree(upload_dir.resolve(), ignore_errors=True)
+
+        build_ids = {job.get('build_id')}
+        for attempt in job.get('attempts', []):
+            if isinstance(attempt, dict):
+                build_ids.add(attempt.get('build_id'))
+        workspace_root = (root / 'workspace').resolve()
+        for build_id in build_ids:
+            if not isinstance(build_id, str) or not re.fullmatch('[a-f0-9]{32}', build_id):
+                continue
+            target = workspace_root / build_id
+            if target.exists() and not target.is_symlink() and target.resolve().parent == workspace_root:
+                shutil.rmtree(target.resolve(), ignore_errors=True)
+
+        metadata = root / (job_id + '.json')
+        if metadata.exists() and metadata.resolve().parent == root:
+            metadata.unlink(missing_ok=True)
+
     def import_slots(user):
         """How many additional READY jobs this account may create.
 
@@ -183,22 +224,36 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     def run_job(job_id, entry, mode):
         job = get_job(job_id)
-        job['status'] = 'BUILDING'
-        persist(job)
+        with lock:
+            if job.get('cancel_requested'):
+                job.update(status='CANCELED', error='Build cancelled by user', terminal=True)
+                persist(job)
+                return
+            job['status'] = 'BUILDING'
+            persist(job)
         try:
             builder = make_builder()
+            with lock:
+                active_builders[job_id] = builder
+                if job.get('cancel_requested'):
+                    builder.cancel()
             def created(build_id, log_file):
                 job.update(build_id=build_id, log=str(log_file))
                 persist(job)
             def state_changed(state):
-                job.update(status=state)
+                if job.get('cancel_requested') and state != 'CANCELED':
+                    job.update(status='CANCELING')
+                else:
+                    job.update(status=state)
                 persist(job)
             builder.engine.on_created = created
             builder.on_state = state_changed
             builder.web_job_id = job_id
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
             job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
-            if result.build.success:
+            if result.status == 'CANCELED' or job.get('cancel_requested'):
+                job.update(status='CANCELED', error='Build cancelled by user')
+            elif result.build.success:
                 artifact = result.build.artifact
                 if artifact.is_dir():
                     artifact = Path(shutil.make_archive(str(artifact), 'zip', artifact.parent, artifact.name))
@@ -216,8 +271,11 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 diagnostic.write_text('BUILD FAILED BEFORE ENGINE START\n' + error + '\n', encoding='utf-8')
                 job['log'] = str(diagnostic)
         finally:
-            job['terminal'] = True
-            persist(job)
+            with lock:
+                active_builders.pop(job_id, None)
+                futures.pop(job_id, None)
+                job['terminal'] = True
+                persist(job)
 
     @app.get('/', response_class=HTMLResponse)
     def home(request: Request):
@@ -433,10 +491,52 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                     accounts.consume_build(user['id'])
                 except ValueError as exc:
                     raise HTTPException(402, str(exc)) from exc
-            job['status'] = 'QUEUED'
+            job.update(status='QUEUED', terminal=False, cancel_requested=False)
             persist(job)
-            pool.submit(run_job, job_id, entry, mode)
+            future = pool.submit(run_job, job_id, entry, mode)
+            futures[job_id] = future
         return {'id': job_id, 'status': 'QUEUED'}
+
+
+    @app.post('/api/jobs/{job_id}/cancel')
+    def cancel_job(request: Request, job_id: str):
+        job, user = get_owned_job(job_id, request)
+        if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        with lock:
+            status = job.get('status')
+            if status == 'READY':
+                raise HTTPException(409, '项目尚未开始构建，可直接删除项目')
+            if job.get('terminal') or status in {'SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED','CANCELED'}:
+                raise HTTPException(409, '当前任务已经结束，无法取消')
+            job['cancel_requested'] = True
+            future = futures.get(job_id)
+            if status == 'QUEUED' and future is not None and future.cancel():
+                futures.pop(job_id, None)
+                job.update(status='CANCELED', error='Build cancelled before execution', terminal=True)
+                accounts.refund_build(user['id'])
+                persist(job)
+                return {'id': job_id, 'status': 'CANCELED', 'quota_refunded': True}
+            job['status'] = 'CANCELING'
+            persist(job)
+            builder = active_builders.get(job_id)
+            if builder is not None:
+                builder.cancel()
+        return {'id': job_id, 'status': 'CANCELING', 'quota_refunded': False}
+
+    @app.delete('/api/jobs/{job_id}')
+    def delete_job(request: Request, job_id: str):
+        job, user = get_owned_job(job_id, request)
+        if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        with lock:
+            if not job.get('terminal') and job.get('status') != 'READY':
+                raise HTTPException(409, '任务正在构建，请先取消并等待任务结束')
+            futures.pop(job_id, None)
+            active_builders.pop(job_id, None)
+            jobs.pop(job_id, None)
+            remove_job_files(job)
+        return {'id': job_id, 'deleted': True}
 
     @app.get('/api/jobs/{job_id}')
     def status(request: Request, job_id: str):
