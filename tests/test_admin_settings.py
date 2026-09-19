@@ -288,3 +288,16 @@ def test_admin_user_management(configured):
     assert reset.status_code == 200
     assert reset.json()['quota_used'] == 0
     assert reset.json()['quota_remaining'] == 3
+
+
+def test_set_admin_password_replaces_existing_password_and_sessions(tmp_path):
+    store = SettingsStore(tmp_path / 'settings.sqlite3')
+    store.set_admin_password('first-password')
+    token = store.new_session()
+    assert store.session(token)
+    assert store.authenticate('first-password')
+
+    store.set_admin_password('second-password')
+    assert not store.authenticate('first-password')
+    assert store.authenticate('second-password')
+    assert store.session(token) is None
