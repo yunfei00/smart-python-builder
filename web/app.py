@@ -9,13 +9,14 @@ import time
 import asyncio
 import contextlib
 import re
+import secrets
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Depends
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
@@ -29,6 +30,7 @@ from .security import RequestLimitsMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
 from .repositories import clone_public_github_repository
+from .accounts import AccountStore, USER_COOKIE, SESSION_SECONDS
 
 
 def _allowed_hosts() -> list[str]:
@@ -39,6 +41,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     settings = SettingsStore(root / 'settings.sqlite3')
+    accounts = AccountStore(root / 'accounts.sqlite3')
     startup_settings = settings.effective()
     def make_builder():
         if builder_factory is SmartBuilder:
@@ -121,6 +124,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     store = ExperienceStore(root / 'workspace' / 'experiences.sqlite3')
     app.state.experience_store = store
     app.state.settings = settings
+    app.state.accounts = accounts
     admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory)
 
     @app.get('/api/admin/experiences', dependencies=[Depends(admin)])
@@ -136,11 +140,23 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         except (ValueError, TypeError) as exc:
             raise HTTPException(400, str(exc))
 
+    def account_session(request: Request):
+        return accounts.session(request.cookies.get(USER_COOKIE, ''))
+
     def get_job(job_id):
         with lock:
             if job_id not in jobs:
                 raise HTTPException(404, '任务不存在')
             return jobs[job_id]
+
+    def get_job_for_request(job_id, request: Request):
+        job = get_job(job_id)
+        owner_id = job.get('owner_id')
+        if owner_id:
+            user = account_session(request)
+            if not user or user['id'] != owner_id:
+                raise HTTPException(404, '任务不存在')
+        return job
 
     def run_job(job_id, entry, mode):
         job = get_job(job_id)
@@ -182,10 +198,101 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.get('/', response_class=HTMLResponse)
     def home(request: Request):
-        return templates.TemplateResponse(request=request, name='index.html', context={})
+        return templates.TemplateResponse(request=request, name='index.html', context={'user': account_session(request)})
+
+    def account_page(request, mode, error='', email=''):
+        user = account_session(request)
+        if user:
+            return RedirectResponse('/dashboard', status_code=303)
+        return templates.TemplateResponse(
+            request=request, name='account_auth.html',
+            context={'mode': mode, 'error': error, 'email': email},
+            headers={'Cache-Control': 'no-store'},
+        )
+
+    @app.get('/account/register', response_class=HTMLResponse)
+    def register_page(request: Request):
+        return account_page(request, 'register')
+
+    @app.post('/account/register')
+    def register_account(request: Request, email: str = Form(...), password: str = Form(...)):
+        if request.headers.get('sec-fetch-site') == 'cross-site':
+            raise HTTPException(403, 'Cross-origin writes are disabled')
+        try:
+            user = accounts.create_user(email, password)
+        except ValueError as exc:
+            return account_page(request, 'register', str(exc), email.strip())
+        token, _ = accounts.new_session(user['id'])
+        response = RedirectResponse('/dashboard', status_code=303)
+        response.set_cookie(
+            USER_COOKIE, token, httponly=True, samesite='lax',
+            secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
+        )
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.get('/account/login', response_class=HTMLResponse)
+    def account_login_page(request: Request):
+        return account_page(request, 'login')
+
+    @app.post('/account/login')
+    def account_login(request: Request, email: str = Form(...), password: str = Form(...)):
+        if request.headers.get('sec-fetch-site') == 'cross-site':
+            raise HTTPException(403, 'Cross-origin writes are disabled')
+        user = accounts.authenticate(email, password)
+        if not user:
+            return account_page(request, 'login', '邮箱或密码不正确', email.strip())
+        accounts.logout(request.cookies.get(USER_COOKIE, ''))
+        token, _ = accounts.new_session(user['id'])
+        response = RedirectResponse('/dashboard', status_code=303)
+        response.set_cookie(
+            USER_COOKIE, token, httponly=True, samesite='lax',
+            secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
+        )
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.post('/account/logout')
+    def account_logout(request: Request, csrf: str = Form(...)):
+        user = account_session(request)
+        if not user or not secrets.compare_digest(csrf, user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        accounts.logout(request.cookies.get(USER_COOKIE, ''))
+        response = RedirectResponse('/', status_code=303)
+        response.delete_cookie(USER_COOKIE, path='/')
+        return response
+
+    @app.get('/dashboard', response_class=HTMLResponse)
+    def dashboard(request: Request):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login', status_code=303)
+        owned = []
+        for item in sorted(jobs.values(), key=lambda value: value.get('created_at', 0), reverse=True):
+            if item.get('owner_id') != user['id']:
+                continue
+            entry = dict(item)
+            source_type = entry.get('source_type', 'upload')
+            entry['source_type'] = source_type
+            entry['project_name'] = entry.get('project_name') or ('GitHub project' if source_type == 'github' else 'Python project')
+            entry['source_label'] = entry.get('repository_url') or ('本地上传 · ' + entry.get('dependency_source', 'Python'))
+            entry['created_label'] = time.strftime('%m-%d %H:%M', time.localtime(entry.get('created_at', time.time())))
+            owned.append(entry)
+        return templates.TemplateResponse(
+            request=request, name='dashboard.html',
+            context={'user': user, 'jobs': owned[:30]},
+            headers={'Cache-Control': 'no-store'},
+        )
+
+    @app.get('/api/account/me')
+    def account_me(request: Request):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录')
+        return {key: value for key, value in user.items() if key != 'csrf'}
 
     @app.post('/api/uploads')
-    async def upload(file: UploadFile = File(...)):
+    async def upload(request: Request, file: UploadFile = File(...)):
         data = await file.read(MAX_UPLOAD + 1)
         job_id = uuid.uuid4().hex
         upload_dir = root / 'uploads' / job_id
@@ -199,15 +306,18 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
                 shutil.rmtree(upload_dir.resolve())
             raise HTTPException(400, str(exc)) from exc
+        user = account_session(request)
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
-                   dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False)
+                   dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
+                   source_type='upload', owner_id=user['id'] if user else None,
+                   project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project')
         jobs[job_id] = job
         persist(job)
         return job
 
     @app.post('/api/repositories')
-    def import_repository(payload: dict):
+    def import_repository(request: Request, payload: dict):
         job_id = uuid.uuid4().hex
         upload_dir = root / 'uploads' / job_id
         try:
@@ -223,14 +333,16 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
-                   source_type='github', repository_url=payload.get('url', '').strip(), repository_ref=(payload.get('ref') or '').strip() or None)
+                   source_type='github', repository_url=payload.get('url', '').strip(), repository_ref=(payload.get('ref') or '').strip() or None,
+                   owner_id=(account_session(request) or {}).get('id'),
+                   project_name=(payload.get('url', '').rstrip('/').rsplit('/', 1)[-1].removesuffix('.git') or 'GitHub project')[:120])
         jobs[job_id] = job
         persist(job)
         return job
 
     @app.get('/api/jobs/{job_id}/plan')
-    def preview(job_id: str, entry: str, mode: str = 'onefile'):
-        job = get_job(job_id)
+    def preview(request: Request, job_id: str, entry: str, mode: str = 'onefile'):
+        job = get_job_for_request(job_id, request)
         if entry not in job['entries'] or mode not in {'onefile', 'onedir'}:
             raise HTTPException(400, '请选择有效入口和输出格式')
         analysis = analyze_project(job['source'])
@@ -238,8 +350,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         return builder.experiences.plan(analysis, analysis.project_root / entry, mode=mode).to_dict()
 
     @app.post('/api/jobs/{job_id}/build')
-    def start(job_id: str, entry: str = Form(...), mode: str = Form('onefile')):
-        job = get_job(job_id)
+    def start(request: Request, job_id: str, entry: str = Form(...), mode: str = Form('onefile')):
+        job = get_job_for_request(job_id, request)
         with lock:
             if job['status'] != 'READY':
                 raise HTTPException(409, '任务已开始')
@@ -247,14 +359,26 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 raise HTTPException(400, '请选择有效入口和输出格式')
             if sum(not item.get('terminal') and item['status'] != 'READY' for item in jobs.values()) >= 8:
                 raise HTTPException(429, '构建队列已满，请稍后重试')
+            user = account_session(request)
+            if user:
+                if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+                    raise HTTPException(403, '会话校验失败，请刷新页面')
+                if job.get('owner_id') not in (None, user['id']):
+                    raise HTTPException(404, '任务不存在')
+                if not job.get('owner_id'):
+                    job['owner_id'] = user['id']
+                try:
+                    accounts.consume_build(user['id'])
+                except ValueError as exc:
+                    raise HTTPException(402, str(exc)) from exc
             job['status'] = 'QUEUED'
             persist(job)
             pool.submit(run_job, job_id, entry, mode)
         return {'id': job_id, 'status': 'QUEUED'}
 
     @app.get('/api/jobs/{job_id}')
-    def status(job_id: str):
-        job = dict(get_job(job_id))
+    def status(request: Request, job_id: str):
+        job = dict(get_job_for_request(job_id, request))
         job['artifact_available'] = artifact_available(job)
         return job
 
@@ -268,14 +392,14 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             return False
 
     @app.get('/api/jobs/{job_id}/log')
-    def log(job_id: str):
-        job = get_job(job_id)
+    def log(request: Request, job_id: str):
+        job = get_job_for_request(job_id, request)
         path = Path(job['log']) if job.get('log') else None
         return {'text': path.read_text(encoding='utf-8', errors='replace')[-200000:] if path and path.exists() else ''}
 
     @app.get('/api/jobs/{job_id}/download')
-    def download(job_id: str):
-        job = get_job(job_id)
+    def download(request: Request, job_id: str):
+        job = get_job_for_request(job_id, request)
         if job['status'] != 'SUCCESS' or not job.get('terminal') or not job.get('artifact'):
             raise HTTPException(409, '文件尚未生成')
         artifact = Path(job['artifact'])
