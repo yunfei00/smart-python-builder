@@ -136,5 +136,6 @@ async function preview() {
 $('entry').onchange = preview; $('mode').onchange = preview;
 $('upload-file')?.addEventListener('change', renderSelectedFile);
 renderSelectedFile();
+renderStatus({status:'READY'});
 const existing = new URLSearchParams(location.search).get('job');
 if (existing) { job = {id:existing}; poll(existing, generation); }
