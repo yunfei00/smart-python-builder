@@ -266,7 +266,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 job.update(status=result.status, error=result.build.error, attempts=result.attempts)
         except Exception as exc:
             error = str(exc) or type(exc).__name__
-            job.update(status='FAILED', error=error)
+            if job.get('cancel_requested'):
+                job.update(status='CANCELED', error='Build cancelled by user')
+            else:
+                job.update(status='FAILED', error=error)
             # Failures before BuildEngine creates a workspace/log (for example
             # plan validation) still need a visible diagnostic in the Web UI.
             if not job.get('log'):
