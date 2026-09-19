@@ -42,6 +42,7 @@ class SmartBuilder:
         self.settings_store = settings_store or SettingsStore('web-data/settings.sqlite3')
         settings = self.settings_store.effective()
         self.engine = BuildEngine(workspace_root, timeout)
+        self._cancelled = False
         self.experiences = ExperienceEngine()
         self.ai_provider = ai_provider if ai_provider is not None else configured_provider(settings)
         self.artifact_validator = artifact_validator
@@ -52,6 +53,7 @@ class SmartBuilder:
         self.experiences.store = self.experience_store
 
     def cancel(self) -> None:
+        self._cancelled = True
         self.engine.cancel()
 
     @property
@@ -118,6 +120,9 @@ class SmartBuilder:
                 self.notifications.emit(dict(event='Build Failed', build_id=result.build_id, project=analysis.source.name,
                     entry=plan.entry_point, dependencies=plan.dependencies, failed_stage='build/artifact validation',
                     error_summary=result.error, ai_diagnosis_started=self.ai_provider is not None, details_url=self.details_url))
+            if self._cancelled:
+                transition('CANCELED')
+                break
             if self.ai_provider is None:
                 break
             if attempt == 2:
@@ -131,6 +136,9 @@ class SmartBuilder:
                                build_plan=plan.to_dict(), pyinstaller_log=result.log_file.read_text(encoding='utf-8', errors='replace')[-80000:],
                                error=result.error, previous_attempts=attempts)
                 repair = RepairPlan.model_validate(self.ai_provider.diagnose(context))
+                if self._cancelled:
+                    transition('CANCELED')
+                    break
                 attempts[-1]['repair'] = repair.model_dump()
                 if not repair.retry:
                     transition('NEEDS_MANUAL_REVIEW')
