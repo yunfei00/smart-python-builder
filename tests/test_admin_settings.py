@@ -243,3 +243,48 @@ def test_invalid_settings_atomic(configured,payload):
     before = app.state.settings.saved()
     assert client.post('/api/admin/settings',headers=headers,json=payload).status_code == 400
     assert app.state.settings.saved() == before
+
+
+def test_admin_user_management(configured):
+    app, client, headers = configured
+    first = app.state.accounts.create_user('free@example.com', 'password123')
+    second = app.state.accounts.create_user('test@example.com', 'password123')
+
+    users_page = client.get('/admin/users')
+    assert users_page.status_code == 200
+    assert '用户管理' in users_page.text
+
+    listed = client.get('/api/admin/users').json()['users']
+    assert {row['email'] for row in listed} >= {'free@example.com', 'test@example.com'}
+
+    changed = client.post(
+        f"/api/admin/users/{first['id']}/plan",
+        headers=headers,
+        json={'plan':'TEST'},
+    )
+    assert changed.status_code == 200
+    assert changed.json()['plan'] == 'TEST'
+    assert changed.json()['quota_unlimited'] is True
+
+    disabled = client.post(
+        f"/api/admin/users/{second['id']}/disabled",
+        headers=headers,
+        json={'disabled': True},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()['disabled'] is True
+    assert app.state.accounts.authenticate('test@example.com', 'password123') is None
+
+    enabled = client.post(
+        f"/api/admin/users/{second['id']}/disabled",
+        headers=headers,
+        json={'disabled': False},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()['disabled'] is False
+
+    app.state.accounts.consume_build(second['id'])
+    reset = client.post(f"/api/admin/users/{second['id']}/quota/reset", headers=headers)
+    assert reset.status_code == 200
+    assert reset.json()['quota_used'] == 0
+    assert reset.json()['quota_remaining'] == 3
