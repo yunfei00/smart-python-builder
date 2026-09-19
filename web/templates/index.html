@@ -7,13 +7,13 @@
   <meta name="user-csrf" content="{{ user.csrf if user else '' }}">
   <title>Smart Python Builder · Python 一键生成 Windows 应用</title>
   <link rel="stylesheet" href="/static/app.css?v=1.2.0">
-  <script src="/static/home.js?v=1.2.0-github-diagnostics" defer></script>
+  <script src="/static/home.js?v=1.2.0-user-quota" defer></script>
 </head>
 <body>
 <main class="shell">
   <header class="header">
     <a class="brand" href="/" aria-label="Smart Python Builder 首页"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Python → Windows</small></span></a>
-    <nav><a href="#features">产品能力</a><a href="#how">如何使用</a>{% if user %}<a href="/dashboard">我的工作台</a><span class="quota-pill">{{ user.quota_remaining }} 次免费额度</span>{% else %}<a href="/account/login">登录</a><a class="nav-cta" href="/account/register">免费注册</a>{% endif %}</nav>
+    <nav><a href="#features">产品能力</a><a href="#how">如何使用</a>{% if user %}<a href="/dashboard">我的工作台</a><span class="quota-pill">{% if user.quota_unlimited %}∞ 测试额度{% else %}{{ user.quota_remaining }} 次免费额度{% endif %}</span>{% else %}<a href="/account/login">登录</a><a class="nav-cta" href="/account/register">免费注册</a>{% endif %}</nav>
   </header>
 
   <section class="hero">
@@ -39,7 +39,7 @@
     <div class="import-grid">
       <form id="upload" class="import-option">
         <div class="option-icon">↑</div><h3>上传项目</h3><p>支持单个 .py 文件或 ZIP 项目，最大 20 MB。</p>
-        <label class="file-picker"><input aria-label="Python 程序或 ZIP 项目" name="file" type="file" accept=".py,.zip" required><span>选择 .py / .zip 文件</span></label>
+        <label class="file-picker"><input id="upload-file" aria-label="Python 程序或 ZIP 项目" name="file" type="file" accept=".py,.zip" required><span id="upload-file-label">选择 .py / .zip 文件</span></label>
         <button>分析并继续</button>
       </form>
       <form id="github-import" class="import-option">
