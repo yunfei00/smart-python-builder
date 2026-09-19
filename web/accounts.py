@@ -1,6 +1,7 @@
 """Customer accounts, sessions, and free-build quota."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import re
 import secrets
@@ -106,13 +107,15 @@ class AccountStore:
 
     @staticmethod
     def _public(row) -> dict:
+        unlimited = row["plan"] == "TEST"
         return {
             "id": row["id"],
             "email": row["email"],
             "plan": row["plan"],
             "quota_total": row["quota_total"],
             "quota_used": row["quota_used"],
-            "quota_remaining": max(0, row["quota_total"] - row["quota_used"]),
+            "quota_remaining": None if unlimited else max(0, row["quota_total"] - row["quota_used"]),
+            "quota_unlimited": unlimited,
             "created_at": row["created_at"],
         }
 
@@ -157,11 +160,61 @@ class AccountStore:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT quota_total,quota_used FROM users WHERE id=? AND disabled=0", (user_id,)
+                "SELECT plan,quota_total,quota_used FROM users WHERE id=? AND disabled=0", (user_id,)
             ).fetchone()
             if not row:
                 raise ValueError("用户不存在")
+            if row["plan"] == "TEST":
+                return self.get_user(user_id)
             if row["quota_used"] >= row["quota_total"]:
                 raise ValueError("免费构建额度已用完")
             db.execute("UPDATE users SET quota_used=quota_used+1 WHERE id=?", (user_id,))
         return self.get_user(user_id)
+
+    def set_plan(self, email: str, plan: str) -> dict:
+        email = self.normalize_email(email)
+        plan = (plan or "").strip().upper()
+        if plan not in {"FREE", "TEST"}:
+            raise ValueError("当前仅支持 FREE 或 TEST 套餐")
+        with self.connect() as db:
+            row = db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+            if plan == "TEST":
+                db.execute(
+                    "UPDATE users SET plan='TEST', quota_total=0, quota_used=0 WHERE email=?",
+                    (email,),
+                )
+            else:
+                db.execute(
+                    "UPDATE users SET plan='FREE', quota_total=3, quota_used=0 WHERE email=?",
+                    (email,),
+                )
+        return self.get_user(row["id"])
+
+
+def _cli() -> int:
+    parser = argparse.ArgumentParser(description="Smart Python Builder account administration")
+    parser.add_argument(
+        "--database",
+        default="web-data/accounts.sqlite3",
+        help="Accounts SQLite path (default: web-data/accounts.sqlite3)",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    set_plan = subparsers.add_parser("set-plan", help="Set an existing account plan")
+    set_plan.add_argument("email")
+    set_plan.add_argument("plan", choices=["FREE", "TEST", "free", "test"])
+    args = parser.parse_args()
+
+    store = AccountStore(args.database)
+    try:
+        user = store.set_plan(args.email, args.plan)
+    except ValueError as exc:
+        parser.error(str(exc))
+    remaining = "∞" if user["quota_unlimited"] else str(user["quota_remaining"])
+    print(f"{user['email']}: plan={user['plan']} remaining={remaining}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())
