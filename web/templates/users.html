@@ -1,0 +1,15 @@
+{% extends 'admin_base.html' %}
+{% block scripts %}<script src="/static/users.js?v=1.2.1" defer></script>{% endblock %}
+{% block content %}
+<section class="admin-section">
+  <div class="workspace-title">
+    <div>
+      <h2>用户管理</h2>
+      <p>查看账号、套餐、额度与启用状态。TEST 为内部无限测试账号。</p>
+    </div>
+    <button id="refresh-users" class="secondary">刷新用户</button>
+  </div>
+  <div id="user-summary" class="workspace-stats admin-user-summary"></div>
+  <div id="users" class="admin-user-list"></div>
+</section>
+{% endblock %}
