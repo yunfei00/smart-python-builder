@@ -2,7 +2,14 @@ let job, generation = 0;
 const $ = id => document.getElementById(id);
 const states = {READY:'等待项目', QUEUED:'已进入构建队列', BUILDING:'正在生成 Windows 应用', AI_DIAGNOSING:'构建遇到问题，AI 正在诊断', AI_REPAIRING:'AI 已找到方案，正在准备修复', REBUILDING:'修复完成，正在重新构建', SUCCESS:'应用已生成', FAILED:'构建未完成', NEEDS_MANUAL_REVIEW:'需要进一步检查', EXPIRED:'构建文件已过期'};
 const progress = {READY:0, QUEUED:18, BUILDING:58, AI_DIAGNOSING:66, AI_REPAIRING:74, REBUILDING:84, SUCCESS:100, FAILED:100, NEEDS_MANUAL_REVIEW:100, EXPIRED:100};
-async function api(url, options) {
+async function api(url, options = {}) {
+  const csrf = document.querySelector('meta[name="user-csrf"]')?.content;
+  const method = (options.method || 'GET').toUpperCase();
+  if (csrf && !['GET','HEAD','OPTIONS'].includes(method)) {
+    const headers = new Headers(options.headers || {});
+    headers.set('X-CSRF-Token', csrf);
+    options = {...options, headers};
+  }
   const response = await fetch(url, options), data = await response.json();
   if (!response.ok) throw Error(data.detail || '操作失败');
   return data;
