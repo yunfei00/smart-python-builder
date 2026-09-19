@@ -1,6 +1,5 @@
 {% extends 'admin_base.html' %}
-{% block scripts %}<script src="/static/settings.js" defer></script></div>
-{% endblock %}
+{% block scripts %}<script src="/static/settings.js" defer></script>{% endblock %}
 {% block content %}
 <div class="settings-page">
 <div class="settings-heading"><span class="eyebrow">SYSTEM SETTINGS</span><h2>系统设置</h2><p>管理 Builder、AI 服务与通知配置。</p></div>
@@ -21,4 +20,5 @@
 <label class="toggle-row"><input id="feishu_enabled" name="feishu_enabled" type="checkbox"><span>启用飞书通知</span></label><small>首次构建成功、首次失败及 AI 修复结束时发送通知，修复成功不会重复发送普通成功通知。通知失败不会影响构建。</small>
 <label for="feishu_webhook">Webhook · 机器人地址</label><div class="secret-row"><span id="feishu_webhook-status"></span><button type="button" class="secondary" data-replace="feishu_webhook">更换 Webhook</button></div><input id="feishu_webhook" name="feishu_webhook" type="password" autocomplete="new-password" placeholder="输入新的 Webhook" hidden disabled><small>机器人地址属于密钥，未填写新地址时保留已有配置。</small>
 <div class="actions"><button type="button" id="test-feishu" class="secondary">发送测试消息</button><button>保存飞书设置</button></div><small>将向当前配置发送带时间的“飞书通知测试成功”消息。</small><p class="message" role="status"></p></form></section>
+</div>
 {% endblock %}
