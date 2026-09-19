@@ -72,7 +72,7 @@ $('github-import').onsubmit = async event => {
     showProject(await api('/api/repositories', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}), current);
   } catch (error) {
     if (current !== generation) return;
-    $('ids').textContent = '项目导入失败 · 请修改仓库地址或版本后重试';
+    $('ids').textContent = 'GitHub 导入失败 · 请查看下方诊断信息';
     showError(error.message);
   }
 };

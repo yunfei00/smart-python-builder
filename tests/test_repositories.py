@@ -38,11 +38,11 @@ def test_explicit_ref_fetches_directly_without_default_branch_clone(tmp_path, mo
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        if command[:2] == ["git", "init"]:
+        if "init" in command:
             project = tmp_path / "target" / "repository"
             project.mkdir(parents=True, exist_ok=True)
             (project / ".git").mkdir()
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout="a" * 40 + "\trefs/heads/feat/example\n" if "ls-remote" in command else "", stderr="")
 
     monkeypatch.setattr("web.repositories.shutil.which", lambda name: "git")
     monkeypatch.setattr("web.repositories.subprocess.run", fake_run)
@@ -54,6 +54,7 @@ def test_explicit_ref_fetches_directly_without_default_branch_clone(tmp_path, mo
     )
 
     assert result == (tmp_path / "target" / "repository").resolve()
-    assert commands[0][:2] == ["git", "init"]
-    assert any(command[-2:] == ["origin", "feat/example"] for command in commands)
+    assert "ls-remote" in commands[0]
+    assert any("init" in command for command in commands)
+    assert any(command[-2:] == ["origin", "refs/heads/feat/example"] for command in commands)
     assert not any("clone" in command for command in commands)

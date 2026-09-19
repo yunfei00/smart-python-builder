@@ -29,7 +29,7 @@ from .admin import register_admin
 from .security import RequestLimitsMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
-from .repositories import clone_public_github_repository
+from .repositories import RepositoryImportError, clone_public_github_repository, safe_git_diagnostic
 from .accounts import AccountStore, USER_COOKIE, SESSION_SECONDS
 
 
@@ -329,7 +329,11 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         except (ValueError, OSError, RuntimeError) as exc:
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
                 shutil.rmtree(upload_dir.resolve())
-            raise HTTPException(400, str(exc)) from exc
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=400, content={
+                'detail': safe_git_diagnostic(str(exc)),
+                'code': exc.code if isinstance(exc, RepositoryImportError) else 'repository_import_error',
+            })
         job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries],
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
