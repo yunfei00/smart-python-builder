@@ -43,6 +43,11 @@ class BuildEngine:
         self.min_free_bytes = 1024**3
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
+    def cancel(self) -> None:
+        cancel = getattr(self.backend, 'cancel', None)
+        if cancel:
+            cancel()
+
     def build(self, request: BuildRequest) -> BuildResult:
         source = request.source.resolve()
         if not source.exists():
