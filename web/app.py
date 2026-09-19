@@ -275,7 +275,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             source_type = entry.get('source_type', 'upload')
             entry['source_type'] = source_type
             entry['project_name'] = entry.get('project_name') or ('GitHub project' if source_type == 'github' else 'Python project')
-            entry['source_label'] = entry.get('repository_url') or ('本地上传 · ' + entry.get('dependency_source', 'Python'))
+            entry['source_label'] = entry.get('repository_url') or ('本地上传 · ' + (entry.get('dependency_source') or 'Python'))
             entry['created_label'] = time.strftime('%m-%d %H:%M', time.localtime(entry.get('created_at', time.time())))
             owned.append(entry)
         return templates.TemplateResponse(
