@@ -347,3 +347,13 @@ def test_user_can_cancel_running_build_then_delete_it(tmp_path):
         assert deleted.status_code == 200
         assert job_id not in app.state.jobs
         assert not (tmp_path / 'workspace' / ('b' * 32)).exists()
+
+
+def test_free_quota_can_be_refunded_for_pre_execution_cancel(tmp_path):
+    store = AccountStore(tmp_path / 'accounts.sqlite3')
+    user = store.create_user('refund@example.com', 'password123')
+    store.consume_build(user['id'])
+    assert store.get_user(user['id'])['quota_remaining'] == 2
+    refunded = store.refund_build(user['id'])
+    assert refunded['quota_remaining'] == 3
+    assert refunded['quota_used'] == 0
