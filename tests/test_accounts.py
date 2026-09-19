@@ -76,3 +76,47 @@ def test_duplicate_email_rejected(tmp_path):
     store.create_user("user@example.com", "password123")
     with pytest.raises(ValueError, match="已经注册"):
         store.create_user("USER@example.com", "password456")
+
+
+def test_test_plan_has_unlimited_builds_and_can_return_to_free(tmp_path):
+    store = AccountStore(tmp_path / "accounts.sqlite3")
+    user = store.create_user("tester@example.com", "password123")
+
+    test_user = store.set_plan(user["email"], "TEST")
+    assert test_user["plan"] == "TEST"
+    assert test_user["quota_unlimited"] is True
+    assert test_user["quota_remaining"] is None
+
+    for _ in range(10):
+        current = store.consume_build(user["id"])
+        assert current["plan"] == "TEST"
+        assert current["quota_used"] == 0
+        assert current["quota_unlimited"] is True
+
+    free_user = store.set_plan(user["email"], "FREE")
+    assert free_user["plan"] == "FREE"
+    assert free_user["quota_total"] == 3
+    assert free_user["quota_used"] == 0
+    assert free_user["quota_remaining"] == 3
+
+
+def test_test_plan_dashboard_shows_unlimited_quota(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        response = client.post(
+            "/account/register",
+            data={"email": "tester@example.com", "password": "password123", "plan": "TEST"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        store = app.state.accounts
+        registered = store.authenticate("tester@example.com", "password123")
+        assert registered["plan"] == "FREE"
+
+        store.set_plan("tester@example.com", "TEST")
+        dashboard = client.get("/dashboard")
+        assert dashboard.status_code == 200
+        assert "TEST" in dashboard.text
+        assert "∞" in dashboard.text
+        assert "无限构建" in dashboard.text
