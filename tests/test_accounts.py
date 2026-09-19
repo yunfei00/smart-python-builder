@@ -327,6 +327,10 @@ def test_user_can_cancel_running_build_then_delete_it(tmp_path):
         assert started.status_code == 200
         assert SlowBuilder.started.wait(timeout=2)
 
+        cannot_delete = client.delete(f'/api/jobs/{job_id}', headers=headers)
+        assert cannot_delete.status_code == 409
+        assert '先取消' in cannot_delete.json()['detail']
+
         canceled = client.post(f'/api/jobs/{job_id}/cancel', headers=headers)
         assert canceled.status_code == 200
         assert canceled.json()['status'] in {'CANCELING', 'CANCELED'}
