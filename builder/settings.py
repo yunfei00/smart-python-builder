@@ -1,7 +1,9 @@
 """Local configuration. Explicit environment overrides > SQLite > defaults."""
 from __future__ import annotations
 
+import argparse
 import base64
+import getpass
 import ctypes
 import hashlib
 import json
@@ -187,6 +189,19 @@ class SettingsStore:
         with self.connect() as db:
             return db.execute("SELECT 1 FROM settings WHERE key='password_hash'").fetchone() is not None
 
+    def set_admin_password(self, password):
+        if not isinstance(password, str) or not 8 <= len(password) <= 1024:
+            raise ValueError('管理员密码长度需要 8–1024 个字符')
+        salt = secrets.token_bytes(16)
+        digest = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1).hex()
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
+                ('password_hash', salt.hex() + ':' + digest),
+            )
+            db.execute('DELETE FROM sessions')
+        return True
+
     def authenticate(self, password):
         with self.connect() as db:
             row = db.execute("SELECT value FROM settings WHERE key='password_hash'").fetchone()
@@ -212,3 +227,32 @@ class SettingsStore:
     def logout(self, token):
         with self.connect() as db:
             db.execute('DELETE FROM sessions WHERE token=?', (hashlib.sha256(token.encode()).hexdigest(),))
+
+
+def _cli() -> int:
+    parser = argparse.ArgumentParser(description='Smart Python Builder settings administration')
+    parser.add_argument(
+        '--database',
+        default='web-data/settings.sqlite3',
+        help='Settings SQLite path (default: web-data/settings.sqlite3)',
+    )
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    subparsers.add_parser('reset-admin-password', help='Interactively reset the administrator password')
+    args = parser.parse_args()
+
+    if args.command == 'reset-admin-password':
+        first = getpass.getpass('New admin password: ')
+        second = getpass.getpass('Confirm admin password: ')
+        if first != second:
+            parser.error('两次输入的管理员密码不一致')
+        try:
+            SettingsStore(args.database).set_admin_password(first)
+        except ValueError as exc:
+            parser.error(str(exc))
+        print('Administrator password updated; existing admin sessions were logged out.')
+        return 0
+    return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(_cli())
