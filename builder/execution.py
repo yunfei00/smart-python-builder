@@ -21,11 +21,11 @@ class LocalWindowsBackend:
         self._cancel_requested = False
 
     def cancel(self):
+        # The worker loop polls this flag every 200 ms and owns process-tree
+        # termination, keeping the HTTP cancellation request fast and avoiding
+        # cross-thread process cleanup races.
         with self._lock:
             self._cancel_requested = True
-            process = self._process
-        if process is not None and process.poll() is None:
-            self._stop_process_tree(process)
 
     def _stop_process_tree(self, process):
         try:
