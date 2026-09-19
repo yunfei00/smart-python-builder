@@ -120,3 +120,70 @@ def test_test_plan_dashboard_shows_unlimited_quota(tmp_path):
         assert "TEST" in dashboard.text
         assert "∞" in dashboard.text
         assert "无限构建" in dashboard.text
+
+
+def test_free_account_cannot_import_after_quota_is_exhausted(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        client.post(
+            "/account/register",
+            data={"email": "quota@example.com", "password": "password123"},
+            follow_redirects=False,
+        )
+        user = app.state.accounts.authenticate("quota@example.com", "password123")
+        for _ in range(3):
+            app.state.accounts.consume_build(user["id"])
+
+        response = client.post(
+            "/api/uploads",
+            files={"file": ("blocked.py", io.BytesIO(b"print('blocked')"), "text/x-python")},
+        )
+        assert response.status_code == 402
+        assert "额度已用完" in response.json()["detail"]
+
+        home = client.get("/")
+        assert home.status_code == 200
+        assert "当前没有可用构建额度" in home.text
+        assert "disabled" in home.text
+
+
+def test_ready_jobs_reserve_remaining_free_quota(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        client.post(
+            "/account/register",
+            data={"email": "reserved@example.com", "password": "password123"},
+            follow_redirects=False,
+        )
+        for index in range(3):
+            response = client.post(
+                "/api/uploads",
+                files={"file": (f"job{index}.py", io.BytesIO(b"print('ready')"), "text/x-python")},
+            )
+            assert response.status_code == 200
+            assert response.json()["status"] == "READY"
+
+        blocked = client.post(
+            "/api/uploads",
+            files={"file": ("job4.py", io.BytesIO(b"print('blocked')"), "text/x-python")},
+        )
+        assert blocked.status_code == 402
+        assert "READY" in blocked.json()["detail"]
+
+
+def test_test_account_can_create_more_than_free_ready_limit(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        client.post(
+            "/account/register",
+            data={"email": "internal@example.com", "password": "password123"},
+            follow_redirects=False,
+        )
+        app.state.accounts.set_plan("internal@example.com", "TEST")
+
+        for index in range(5):
+            response = client.post(
+                "/api/uploads",
+                files={"file": (f"job{index}.py", io.BytesIO(b"print('test')"), "text/x-python")},
+            )
+            assert response.status_code == 200
