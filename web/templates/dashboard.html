@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="user-csrf" content="{{ user.csrf }}">
   <title>我的工作台 · Smart Python Builder</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.2.0-quota-gate">
+  <link rel="stylesheet" href="/static/app.css?v=1.2.1-job-actions">
+  <script src="/static/dashboard.js?v=1.2.1" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -31,13 +33,22 @@
     {% if jobs %}
       <div class="job-list">
       {% for job in jobs %}
-        <a class="job-row" href="/?job={{ job.id }}">
+        <div class="job-row job-row-actions" data-job="{{ job.id }}" data-status="{{ job.status }}">
           <span class="job-source">{{ 'GH' if job.source_type == 'github' else 'PY' }}</span>
-          <span class="job-main"><strong>{{ job.project_name }}</strong><small>{{ job.source_label }}</small></span>
+          <a class="job-main" href="/?job={{ job.id }}"><strong>{{ job.project_name }}</strong><small>{{ job.source_label }}</small></a>
           <span class="job-status status-{{ job.status|lower }}">{{ job.status }}</span>
           <span class="job-time">{{ job.created_label }}</span>
-          <span class="job-open">→</span>
-        </a>
+          <div class="job-actions">
+            <a class="job-open-link" href="/?job={{ job.id }}">{{ '继续' if job.status == 'READY' else '查看' }}</a>
+            {% if job.status in ['QUEUED','BUILDING','AI_DIAGNOSING','AI_REPAIRING','REBUILDING'] %}
+            <button class="job-action-button cancel-job" data-action="cancel">取消</button>
+            {% elif job.status == 'CANCELING' %}
+            <button class="job-action-button" disabled>取消中…</button>
+            {% else %}
+            <button class="job-action-button danger-text delete-job" data-action="delete">删除</button>
+            {% endif %}
+          </div>
+        </div>
       {% endfor %}
       </div>
     {% else %}
