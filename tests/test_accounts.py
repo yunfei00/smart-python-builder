@@ -451,3 +451,53 @@ def test_customer_can_change_password_and_keep_fresh_session(tmp_path):
         assert app.state.accounts.authenticate('password@example.com', 'password123') is None
         assert app.state.accounts.authenticate('password@example.com', 'new-password-123')['id'] == user['id']
         assert client.get('/account/settings').status_code == 200
+
+
+def test_claiming_guest_project_respects_reserved_free_quota(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        user, headers = _registered_client(app, client, 'reserved-claim@example.com')
+        source = tmp_path / 'guest.py'
+        source.write_text("print('guest')", encoding='utf-8')
+
+        for index in range(3):
+            app.state.jobs[f'{index + 1:032x}'] = {
+                'id': f'{index + 1:032x}',
+                'status': 'READY',
+                'source': str(source),
+                'entries': ['guest.py'],
+                'entry': 'guest.py',
+                'dependencies': [],
+                'dependency_source': None,
+                'plan': None,
+                'created_at': time.time(),
+                'terminal': False,
+                'source_type': 'upload',
+                'owner_id': user['id'],
+                'project_name': f'owned-{index}',
+            }
+
+        guest_id = 'f' * 32
+        app.state.jobs[guest_id] = {
+            'id': guest_id,
+            'status': 'READY',
+            'source': str(source),
+            'entries': ['guest.py'],
+            'entry': 'guest.py',
+            'dependencies': [],
+            'dependency_source': None,
+            'plan': None,
+            'created_at': time.time(),
+            'terminal': False,
+            'source_type': 'upload',
+            'owner_id': None,
+            'project_name': 'guest',
+        }
+
+        response = client.post(
+            f'/api/jobs/{guest_id}/build',
+            data={'entry': 'guest.py', 'mode': 'onefile'},
+            headers=headers,
+        )
+        assert response.status_code == 402
+        assert app.state.jobs[guest_id]['owner_id'] is None
