@@ -568,6 +568,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             if job.get('owner_id') not in (None, user['id']):
                 raise HTTPException(404, '任务不存在')
             if not job.get('owner_id'):
+                ensure_import_slot(user)
                 job['owner_id'] = user['id']
             try:
                 accounts.consume_build(user['id'])
