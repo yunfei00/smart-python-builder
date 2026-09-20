@@ -74,14 +74,32 @@ class AccountStore:
         return email
 
     def create_user(self, email: str, password: str) -> dict:
+        return self.create_managed_user(email, password)
+
+    def create_managed_user(
+        self,
+        email: str,
+        password: str,
+        *,
+        plan: str = "FREE",
+        remaining: int = 3,
+    ) -> dict:
         email = self.normalize_email(email)
+        plan = (plan or "").strip().upper()
+        if plan not in {"FREE", "TEST"}:
+            raise ValueError("当前仅支持 FREE 或 TEST 套餐")
+        if type(remaining) is not int or not 0 <= remaining <= 1_000_000:
+            raise ValueError("剩余额度必须是 0–1000000 的整数")
         identifier = uuid.uuid4().hex
         password_hash = _password_hash(password)
+        quota_total = 0 if plan == "TEST" else remaining
         try:
             with self.connect() as db:
                 db.execute(
-                    "INSERT INTO users(id,email,password_hash,created_at) VALUES (?,?,?,?)",
-                    (identifier, email, password_hash, time.time()),
+                    """INSERT INTO users(
+                        id,email,password_hash,plan,quota_total,quota_used,created_at
+                    ) VALUES (?,?,?,?,?,0,?)""",
+                    (identifier, email, password_hash, plan, quota_total, time.time()),
                 )
         except sqlite3.IntegrityError as exc:
             raise ValueError("该邮箱已经注册") from exc
@@ -158,6 +176,16 @@ class AccountStore:
                 "DELETE FROM user_sessions WHERE token_hash=?",
                 (hashlib.sha256(token.encode()).hexdigest(),),
             )
+
+    def reset_password(self, user_id: str, new_password: str) -> dict:
+        password_hash = _password_hash(new_password)
+        with self.connect() as db:
+            row = db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+            db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user_id))
+            db.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
+        return self.get_user(user_id, include_disabled=True)
 
     def change_password(self, user_id: str, current_password: str, new_password: str) -> dict:
         with self.connect() as db:
