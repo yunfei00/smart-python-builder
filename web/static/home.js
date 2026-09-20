@@ -78,6 +78,8 @@ function renderCurrentProject(value) {
   $('current-project-entry').textContent = value.entry ? '入口：' + value.entry : '入口候选：' + entryCount + ' 个';
   $('current-project-deps').textContent = '依赖：' + depCount + ' 项';
   card.hidden = false;
+  if ($('builder-step-title')) $('builder-step-title').textContent = '当前 Python 项目';
+  if ($('builder-step-subtitle')) $('builder-step-subtitle').textContent = '项目已导入并完成分析，可以继续确认构建配置。';
   if ($('import-options')) $('import-options').hidden = true;
   if ($('import-note')) $('import-note').hidden = true;
 }
@@ -101,6 +103,8 @@ function beginImport() {
   const current = ++generation;
   clearError(); $('project').hidden = true; $('progress').hidden = true;
   if ($('current-project')) $('current-project').hidden = true;
+  if ($('builder-step-title')) $('builder-step-title').textContent = '导入你的 Python 项目';
+  if ($('builder-step-subtitle')) $('builder-step-subtitle').textContent = '选择本地项目，或直接从公开 GitHub 仓库导入。';
   if ($('import-options')) $('import-options').hidden = false;
   if ($('import-note')) $('import-note').hidden = false;
   $('progress').classList.remove('is-success', 'is-failed');
