@@ -491,7 +491,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
                    source_type='upload', owner_id=user['id'] if user else None,
-                   project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project')
+                   project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project',
+                   upload_filename=(file.filename or 'Python project')[:255])
         try:
             with lock:
                 ensure_import_slot(user)
