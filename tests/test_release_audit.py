@@ -54,7 +54,7 @@ def test_web_queue_is_bounded(tmp_path, monkeypatch):
     with TestClient(app) as client:
         registered = client.post(
             '/account/register',
-            data={'email': 'queue@example.com', 'password': 'password123'},
+            data={'username': 'queue', 'email': 'queue@example.com', 'password': 'password123'},
             follow_redirects=False,
         )
         assert registered.status_code == 303

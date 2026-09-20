@@ -1,5 +1,5 @@
 {% extends 'admin_base.html' %}
-{% block scripts %}<script src="/static/users.js?v=1.2.1-user-admin" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/users.js?v=1.2.1-username" defer></script>{% endblock %}
 {% block content %}
 <section class="admin-section">
   <div class="workspace-title">
@@ -14,8 +14,9 @@
   <details class="admin-create-user">
     <summary>+ 添加用户</summary>
     <form id="create-user-form" class="admin-create-user-form">
-      <div><label for="new-user-email">邮箱</label><input id="new-user-email" type="email" maxlength="254" required placeholder="user@example.com"></div>
-      <div><label for="new-user-password">初始密码</label><input id="new-user-password" type="password" minlength="8" maxlength="128" required placeholder="至少 8 个字符"></div>
+      <div><label for="new-user-username">用户名 *</label><input id="new-user-username" minlength="2" maxlength="32" required autocomplete="off" placeholder="yunfei 或 云飞"></div>
+      <div><label for="new-user-email">邮箱（选填）</label><input id="new-user-email" type="email" maxlength="254" placeholder="user@example.com"></div>
+      <div><label for="new-user-password">初始密码 *</label><input id="new-user-password" type="password" minlength="8" maxlength="128" required placeholder="至少 8 个字符"></div>
       <div><label for="new-user-plan">套餐</label><select id="new-user-plan"><option value="FREE">FREE</option><option value="TEST">TEST · 无限</option></select></div>
       <div><label for="new-user-quota">剩余额度</label><input id="new-user-quota" type="number" min="0" max="1000000" step="1" value="3"></div>
       <div class="admin-create-user-action"><button>创建用户</button></div>

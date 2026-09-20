@@ -250,19 +250,22 @@ def test_invalid_settings_atomic(configured,payload):
 
 def test_admin_user_management(configured):
     app, client, headers = configured
-    first = app.state.accounts.create_user('free@example.com', 'password123')
-    second = app.state.accounts.create_user('test@example.com', 'password123')
+    first = app.state.accounts.create_user('free', 'password123', email='free@example.com')
+    second = app.state.accounts.create_user('test', 'password123', email='test@example.com')
 
     users_page = client.get('/admin/users')
     assert users_page.status_code == 200
     assert '用户管理' in users_page.text
     assert '添加用户' in users_page.text
+    assert 'new-user-username' in users_page.text
+    assert '邮箱（选填）' in users_page.text
     assert 'password-modal' in users_page.text
 
     created = client.post(
         '/api/admin/users',
         headers=headers,
         json={
+            'username': 'managed',
             'email':'managed@example.com',
             'password':'initial-password',
             'plan':'FREE',

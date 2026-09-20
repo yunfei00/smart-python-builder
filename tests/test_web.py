@@ -20,7 +20,7 @@ def test_upload_and_entry_selection(tmp_path):
         assert client.get('/').status_code == 200
         registered = client.post(
             '/account/register',
-            data={'email':'entry@example.com','password':'password123'},
+            data={'username': 'entry', 'email':'entry@example.com','password':'password123'},
             follow_redirects=False,
         )
         assert registered.status_code == 303

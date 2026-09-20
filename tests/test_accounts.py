@@ -13,7 +13,7 @@ from web.app import create_app
 
 def test_account_store_register_authenticate_and_quota(tmp_path):
     store = AccountStore(tmp_path / "accounts.sqlite3")
-    user = store.create_user("User@Example.com", "password123")
+    user = store.create_user('User', "password123", email='User@Example.com')
     assert user["email"] == "user@example.com"
     assert user["plan"] == "FREE"
     assert user["quota_remaining"] == 3
@@ -29,7 +29,7 @@ def test_account_store_register_authenticate_and_quota(tmp_path):
 
 def test_account_sessions_logout(tmp_path):
     store = AccountStore(tmp_path / "accounts.sqlite3")
-    user = store.create_user("user@example.com", "password123")
+    user = store.create_user('user', "password123", email='user@example.com')
     token, csrf = store.new_session(user["id"])
     session = store.session(token)
     assert session["id"] == user["id"]
@@ -44,7 +44,7 @@ def test_customer_register_dashboard_and_owned_upload(tmp_path):
         assert client.get("/account/register").status_code == 200
         response = client.post(
             "/account/register",
-            data={"email": "user@example.com", "password": "password123"},
+            data={'username': 'user', "email": "user@example.com", "password": "password123"},
             follow_redirects=False,
         )
         assert response.status_code == 303
@@ -77,14 +77,14 @@ def test_dashboard_requires_login(tmp_path):
 
 def test_duplicate_email_rejected(tmp_path):
     store = AccountStore(tmp_path / "accounts.sqlite3")
-    store.create_user("user@example.com", "password123")
+    store.create_user('user', "password123", email='user@example.com')
     with pytest.raises(ValueError, match="已经注册"):
-        store.create_user("USER@example.com", "password456")
+        store.create_user('another-user', "password456", email='USER@example.com')
 
 
 def test_test_plan_has_unlimited_builds_and_can_return_to_free(tmp_path):
     store = AccountStore(tmp_path / "accounts.sqlite3")
-    user = store.create_user("tester@example.com", "password123")
+    user = store.create_user('tester', "password123", email='tester@example.com')
 
     test_user = store.set_plan(user["email"], "TEST")
     assert test_user["plan"] == "TEST"
@@ -109,7 +109,7 @@ def test_test_plan_dashboard_shows_unlimited_quota(tmp_path):
     with TestClient(app) as client:
         response = client.post(
             "/account/register",
-            data={"email": "tester@example.com", "password": "password123", "plan": "TEST"},
+            data={'username': 'tester', "email": "tester@example.com", "password": "password123", "plan": "TEST"},
             follow_redirects=False,
         )
         assert response.status_code == 303
@@ -131,7 +131,7 @@ def test_free_account_cannot_import_after_quota_is_exhausted(tmp_path):
     with TestClient(app) as client:
         client.post(
             "/account/register",
-            data={"email": "quota@example.com", "password": "password123"},
+            data={'username': 'quota', "email": "quota@example.com", "password": "password123"},
             follow_redirects=False,
         )
         user = app.state.accounts.authenticate("quota@example.com", "password123")
@@ -156,7 +156,7 @@ def test_ready_jobs_reserve_remaining_free_quota(tmp_path):
     with TestClient(app) as client:
         client.post(
             "/account/register",
-            data={"email": "reserved@example.com", "password": "password123"},
+            data={'username': 'reserved', "email": "reserved@example.com", "password": "password123"},
             follow_redirects=False,
         )
         for index in range(3):
@@ -180,7 +180,7 @@ def test_test_account_can_create_more_than_free_ready_limit(tmp_path):
     with TestClient(app) as client:
         client.post(
             "/account/register",
-            data={"email": "internal@example.com", "password": "password123"},
+            data={'username': 'internal', "email": "internal@example.com", "password": "password123"},
             follow_redirects=False,
         )
         app.state.accounts.set_plan("internal@example.com", "TEST")
@@ -196,7 +196,7 @@ def test_test_account_can_create_more_than_free_ready_limit(tmp_path):
 def _registered_client(app, client, email='jobs@example.com'):
     response = client.post(
         '/account/register',
-        data={'email': email, 'password': 'password123'},
+        data={'username': email.split('@')[0], 'email': email, 'password': 'password123'},
         follow_redirects=False,
     )
     assert response.status_code == 303
@@ -351,7 +351,7 @@ def test_user_can_cancel_running_build_then_delete_it(tmp_path):
 
 def test_free_quota_can_be_refunded_for_pre_execution_cancel(tmp_path):
     store = AccountStore(tmp_path / 'accounts.sqlite3')
-    user = store.create_user('refund@example.com', 'password123')
+    user = store.create_user('refund', 'password123', email='refund@example.com')
     store.consume_build(user['id'])
     assert store.get_user(user['id'])['quota_remaining'] == 2
     refunded = store.refund_build(user['id'])
@@ -384,7 +384,7 @@ def test_guest_can_analyze_but_build_requires_login_and_resumes_after_login(tmp_
         assert login.status_code == 200
         assert f'value="{next_url}"' in login.text
 
-        app.state.accounts.create_user('resume@example.com', 'password123')
+        app.state.accounts.create_user('resume', 'password123', email='resume@example.com')
         signed_in = client.post(
             '/account/login',
             data={'email': 'resume@example.com', 'password': 'password123', 'next': next_url},
@@ -409,7 +409,7 @@ def test_guest_can_analyze_but_build_requires_login_and_resumes_after_login(tmp_
 
 def test_auth_next_rejects_external_redirects(tmp_path):
     app = create_app(tmp_path)
-    app.state.accounts.create_user('safe@example.com', 'password123')
+    app.state.accounts.create_user('safe', 'password123', email='safe@example.com')
     with TestClient(app) as client:
         response = client.post(
             '/account/login',
@@ -515,8 +515,8 @@ def test_claiming_guest_project_respects_reserved_free_quota(tmp_path):
 def test_managed_user_creation_and_admin_password_reset(tmp_path):
     store = AccountStore(tmp_path / 'accounts.sqlite3')
     free_user = store.create_managed_user(
-        'managed@example.com',
-        'initial-password',
+        'managed',
+        'initial-password', email='managed@example.com',
         plan='FREE',
         remaining=15,
     )
@@ -524,8 +524,8 @@ def test_managed_user_creation_and_admin_password_reset(tmp_path):
     assert free_user['quota_remaining'] == 15
 
     test_user = store.create_managed_user(
-        'internal-managed@example.com',
-        'initial-password',
+        'internal-managed',
+        'initial-password', email='internal-managed@example.com',
         plan='TEST',
         remaining=999,
     )

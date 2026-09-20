@@ -100,7 +100,7 @@ def test_url_refresh_existing_builder(tmp_path):
 def _login_for_build(app, client, email='notify@example.com', *, test_plan=False):
     response = client.post(
         '/account/register',
-        data={'email': email, 'password': 'password123'},
+        data={'username': email.split('@')[0], 'email': email, 'password': 'password123'},
         follow_redirects=False,
     )
     assert response.status_code == 303

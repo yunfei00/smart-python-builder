@@ -100,8 +100,9 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
             raise HTTPException(503, '用户管理尚未启用')
         try:
             return accounts.create_managed_user(
-                payload.get('email', ''),
+                payload.get('username', ''),
                 payload.get('password', ''),
+                email=payload.get('email'),
                 plan=payload.get('plan', 'FREE'),
                 remaining=payload.get('remaining', 3),
             )

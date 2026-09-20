@@ -307,14 +307,15 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             },
         )
 
-    def account_page(request, mode, error='', email='', next_url='/dashboard'):
+    def account_page(request, mode, error='', email='', next_url='/dashboard', *, username='', login=''):
         next_url = safe_next_url(next_url)
         user = account_session(request)
         if user:
             return RedirectResponse(next_url, status_code=303)
         return templates.TemplateResponse(
             request=request, name='account_auth.html',
-            context={'mode': mode, 'error': error, 'email': email, 'next_url': next_url},
+            context={'mode': mode, 'error': error, 'email': email, 'next_url': next_url,
+                     'username': username, 'login': login},
             headers={'Cache-Control': 'no-store'},
         )
 
@@ -325,7 +326,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     @app.post('/account/register')
     def register_account(
         request: Request,
-        email: str = Form(...),
+        username: str = Form(''),
+        email: str = Form(''),
         password: str = Form(...),
         next_url: str = Form('/dashboard', alias='next'),
     ):
@@ -333,9 +335,9 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             raise HTTPException(403, 'Cross-origin writes are disabled')
         next_url = safe_next_url(next_url)
         try:
-            user = accounts.create_user(email, password)
+            user = accounts.create_user(username, password, email=email)
         except ValueError as exc:
-            return account_page(request, 'register', str(exc), email.strip(), next_url)
+            return account_page(request, 'register', str(exc), email[:254], next_url, username=username[:32])
         token, _ = accounts.new_session(user['id'])
         response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
@@ -352,16 +354,18 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     @app.post('/account/login')
     def account_login(
         request: Request,
-        email: str = Form(...),
+        login: str | None = Form(None),
+        email: str = Form(''),
         password: str = Form(...),
         next_url: str = Form('/dashboard', alias='next'),
     ):
         if request.headers.get('sec-fetch-site') == 'cross-site':
             raise HTTPException(403, 'Cross-origin writes are disabled')
         next_url = safe_next_url(next_url)
-        user = accounts.authenticate(email, password)
+        identifier = login if login is not None else email
+        user = accounts.authenticate(identifier, password)
         if not user:
-            return account_page(request, 'login', '邮箱或密码不正确', email.strip(), next_url)
+            return account_page(request, 'login', '用户名、邮箱或密码不正确', next_url=next_url, login=identifier[:254])
         accounts.logout(request.cookies.get(USER_COOKIE, ''))
         token, _ = accounts.new_session(user['id'])
         response = RedirectResponse(next_url, status_code=303)

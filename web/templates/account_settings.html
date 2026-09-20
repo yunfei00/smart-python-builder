@@ -17,7 +17,7 @@
     <div class="settings-heading">
       <span class="eyebrow">ACCOUNT SETTINGS</span>
       <h1>账号设置</h1>
-      <p>{{ user.email }}</p>
+      <p><strong>{{ user.username }}</strong><br>{{ user.email or '未绑定邮箱' }}</p>
     </div>
 
     <section class="settings-card account-security-card">

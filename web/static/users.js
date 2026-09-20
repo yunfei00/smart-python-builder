@@ -36,8 +36,9 @@ function renderUsers(users) {
   }
   userRoot.innerHTML = users.map(user => {
     const disabled = user.disabled;
-    return '<article class="admin-user-card'+(disabled?' is-disabled':'')+'" data-user="'+escapeHtml(user.id)+'" data-email="'+escapeHtml(user.email)+'">'+
-      '<div class="admin-user-main"><strong>'+escapeHtml(user.email)+'</strong>'+
+    return '<article class="admin-user-card'+(disabled?' is-disabled':'')+'" data-user="'+escapeHtml(user.id)+'" data-username="'+escapeHtml(user.username)+'">'+
+      '<div class="admin-user-main"><strong>'+escapeHtml(user.username)+'</strong>'+
+      '<span>'+escapeHtml(user.email || '未绑定邮箱')+'</span>'+
       '<span>注册时间 '+escapeHtml(dateLabel(user.created_at))+'</span></div>'+
       '<div class="admin-user-metric"><small>套餐</small><b>'+escapeHtml(user.plan)+'</b></div>'+
       '<div class="admin-user-metric"><small>剩余额度</small><b>'+quotaLabel(user)+'</b></div>'+
@@ -91,6 +92,7 @@ createUserForm?.addEventListener('submit', async event => {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
+        username:document.getElementById('new-user-username').value,
         email:document.getElementById('new-user-email').value.trim(),
         password:document.getElementById('new-user-password').value,
         plan,
@@ -112,9 +114,9 @@ createUserForm?.addEventListener('submit', async event => {
   }
 });
 
-function openPasswordModal(userId, email) {
+function openPasswordModal(userId, username) {
   passwordResetUserId = userId;
-  document.getElementById('password-modal-user').textContent = email;
+  document.getElementById('password-modal-user').textContent = username;
   document.getElementById('reset-user-password').value = '';
   document.getElementById('reset-user-password-confirm').value = '';
   passwordResetMessage.textContent = '';
@@ -164,7 +166,7 @@ userRoot.addEventListener('click', async event => {
   const card = button.closest('[data-user]');
   const userId = card.dataset.user;
   if (button.dataset.action === 'password') {
-    openPasswordModal(userId, card.dataset.email);
+    openPasswordModal(userId, card.dataset.username);
     return;
   }
   button.disabled = true;
