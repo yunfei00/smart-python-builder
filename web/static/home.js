@@ -195,7 +195,11 @@ renderSelectedFile();
 renderStatus({status:'READY'});
 async function resumeExisting(id) {
   try {
-    const value = await api('/api/jobs/' + encodeURIComponent(id));
+    let value = await api('/api/jobs/' + encodeURIComponent(id));
+    const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+    if (value.status === 'READY' && !value.owner_id && loggedIn) {
+      value = await api('/api/jobs/' + encodeURIComponent(id) + '/claim', {method:'POST'});
+    }
     if (value.status === 'READY') {
       showProject(value, generation);
       renderStatus(value);
