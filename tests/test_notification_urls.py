@@ -97,6 +97,19 @@ def test_url_refresh_existing_builder(tmp_path):
     assert builder.notification_links()=={'details_url':'https://builder.example.com/?job=job-id','approval_url':'https://builder.example.com/admin'}
 
 
+def _login_for_build(app, client, email='notify@example.com', *, test_plan=False):
+    response = client.post(
+        '/account/register',
+        data={'email': email, 'password': 'password123'},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    if test_plan:
+        app.state.accounts.set_plan(email, 'TEST')
+    session = app.state.accounts.session(client.cookies.get('builder_user'))
+    return {'X-CSRF-Token': session['csrf']}
+
+
 @pytest.mark.parametrize('scenario',['normal','repair','failed'])
 def test_web_job_url_notification_integration(tmp_path,monkeypatch,scenario):
     fake=FakeNotifier()
@@ -113,8 +126,9 @@ def test_web_job_url_notification_integration(tmp_path,monkeypatch,scenario):
     app=create_app(tmp_path)
     app.state.settings.save({'base_url':'http://192.168.1.105:8000'})
     with TestClient(app) as client:
+        headers = _login_for_build(app, client)
         job=client.post('/api/uploads',files={'file':('main.py',b'print(1)')}).json()
-        assert client.post('/api/jobs/'+job['id']+'/build',data={'entry':'main.py'}).status_code==200
+        assert client.post('/api/jobs/'+job['id']+'/build',data={'entry':'main.py'},headers=headers).status_code==200
         for _ in range(300):
             current=client.get('/api/jobs/'+job['id']).json()
             if current['terminal']: break
