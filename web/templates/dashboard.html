@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="user-csrf" content="{{ user.csrf }}">
   <title>我的工作台 · Smart Python Builder</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.2.1-job-actions">
+  <link rel="stylesheet" href="/static/app.css?v=1.2.1-account-settings">
   <script src="/static/dashboard.js?v=1.2.1" defer></script>
 </head>
 <body>
 <main class="shell">
   <header class="header">
     <a class="brand" href="/"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Python → Windows</small></span></a>
-    <nav><a href="/">新建构建</a><a href="/dashboard">我的工作台</a><form method="post" action="/account/logout" class="inline-form"><input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="secondary compact-button">退出</button></form></nav>
+    <nav><a href="/">新建构建</a><a href="/dashboard">我的工作台</a><a href="/account/settings">账号设置</a><form method="post" action="/account/logout" class="inline-form"><input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="secondary compact-button">退出</button></form></nav>
   </header>
 
   <section class="workspace-hero">
