@@ -148,6 +148,15 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     def account_session(request: Request):
         return accounts.session(request.cookies.get(USER_COOKIE, ''))
 
+    def safe_next_url(value, default='/dashboard'):
+        value = (value or '').strip()
+        if not value or len(value) > 2048 or '\\' in value or '\r' in value or '\n' in value:
+            return default
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc or not parsed.path.startswith('/') or value.startswith('//'):
+            return default
+        return value
+
     def get_job(job_id):
         with lock:
             if job_id not in jobs:
@@ -298,30 +307,37 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             },
         )
 
-    def account_page(request, mode, error='', email=''):
+    def account_page(request, mode, error='', email='', next_url='/dashboard'):
+        next_url = safe_next_url(next_url)
         user = account_session(request)
         if user:
-            return RedirectResponse('/dashboard', status_code=303)
+            return RedirectResponse(next_url, status_code=303)
         return templates.TemplateResponse(
             request=request, name='account_auth.html',
-            context={'mode': mode, 'error': error, 'email': email},
+            context={'mode': mode, 'error': error, 'email': email, 'next_url': next_url},
             headers={'Cache-Control': 'no-store'},
         )
 
     @app.get('/account/register', response_class=HTMLResponse)
     def register_page(request: Request):
-        return account_page(request, 'register')
+        return account_page(request, 'register', next_url=request.query_params.get('next', '/dashboard'))
 
     @app.post('/account/register')
-    def register_account(request: Request, email: str = Form(...), password: str = Form(...)):
+    def register_account(
+        request: Request,
+        email: str = Form(...),
+        password: str = Form(...),
+        next_url: str = Form('/dashboard', alias='next'),
+    ):
         if request.headers.get('sec-fetch-site') == 'cross-site':
             raise HTTPException(403, 'Cross-origin writes are disabled')
+        next_url = safe_next_url(next_url)
         try:
             user = accounts.create_user(email, password)
         except ValueError as exc:
-            return account_page(request, 'register', str(exc), email.strip())
+            return account_page(request, 'register', str(exc), email.strip(), next_url)
         token, _ = accounts.new_session(user['id'])
-        response = RedirectResponse('/dashboard', status_code=303)
+        response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
             USER_COOKIE, token, httponly=True, samesite='lax',
             secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
@@ -331,18 +347,24 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.get('/account/login', response_class=HTMLResponse)
     def account_login_page(request: Request):
-        return account_page(request, 'login')
+        return account_page(request, 'login', next_url=request.query_params.get('next', '/dashboard'))
 
     @app.post('/account/login')
-    def account_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    def account_login(
+        request: Request,
+        email: str = Form(...),
+        password: str = Form(...),
+        next_url: str = Form('/dashboard', alias='next'),
+    ):
         if request.headers.get('sec-fetch-site') == 'cross-site':
             raise HTTPException(403, 'Cross-origin writes are disabled')
+        next_url = safe_next_url(next_url)
         user = accounts.authenticate(email, password)
         if not user:
-            return account_page(request, 'login', '邮箱或密码不正确', email.strip())
+            return account_page(request, 'login', '邮箱或密码不正确', email.strip(), next_url)
         accounts.logout(request.cookies.get(USER_COOKIE, ''))
         token, _ = accounts.new_session(user['id'])
-        response = RedirectResponse('/dashboard', status_code=303)
+        response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
             USER_COOKIE, token, httponly=True, samesite='lax',
             secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
@@ -478,6 +500,9 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.post('/api/jobs/{job_id}/build')
     def start(request: Request, job_id: str, entry: str = Form(...), mode: str = Form('onefile')):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录或注册，再开始 Windows 构建')
         job = get_job_for_request(job_id, request)
         with lock:
             if job['status'] != 'READY':
@@ -486,18 +511,16 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 raise HTTPException(400, '请选择有效入口和输出格式')
             if sum(not item.get('terminal') and item['status'] != 'READY' for item in jobs.values()) >= 8:
                 raise HTTPException(429, '构建队列已满，请稍后重试')
-            user = account_session(request)
-            if user:
-                if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
-                    raise HTTPException(403, '会话校验失败，请刷新页面')
-                if job.get('owner_id') not in (None, user['id']):
-                    raise HTTPException(404, '任务不存在')
-                if not job.get('owner_id'):
-                    job['owner_id'] = user['id']
-                try:
-                    accounts.consume_build(user['id'])
-                except ValueError as exc:
-                    raise HTTPException(402, str(exc)) from exc
+            if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+                raise HTTPException(403, '会话校验失败，请刷新页面')
+            if job.get('owner_id') not in (None, user['id']):
+                raise HTTPException(404, '任务不存在')
+            if not job.get('owner_id'):
+                job['owner_id'] = user['id']
+            try:
+                accounts.consume_build(user['id'])
+            except ValueError as exc:
+                raise HTTPException(402, str(exc)) from exc
             job.update(status='QUEUED', terminal=False, cancel_requested=False)
             persist(job)
             future = pool.submit(run_job, job_id, entry, mode)
