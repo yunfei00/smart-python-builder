@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ '注册' if mode == 'register' else '登录' }} · Smart Python Builder</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.2.0">
+  <link rel="stylesheet" href="/static/app.css?v=1.2.1-auth-resume">
 </head>
 <body>
 <main class="shell account-shell">
@@ -17,6 +17,7 @@
     <h1>{{ '创建免费账户' if mode == 'register' else '登录 Smart Python Builder' }}</h1>
     <p>{{ '注册后获得 3 次免费构建额度，并保存你的构建记录。' if mode == 'register' else '继续管理你的项目、构建记录和免费额度。' }}</p>
     <form method="post" action="/account/{{ mode }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
       <label for="email">邮箱</label>
       <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required value="{{ email or '' }}" placeholder="you@example.com">
       <label for="password">密码</label>
@@ -25,7 +26,7 @@
     </form>
     {% if error %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
     <p class="account-switch">
-      {% if mode == 'register' %}已有账户？ <a href="/account/login">直接登录</a>{% else %}还没有账户？ <a href="/account/register">免费注册</a>{% endif %}
+      {% if mode == 'register' %}已有账户？ <a href="/account/login?next={{ next_url|urlencode }}">直接登录</a>{% else %}还没有账户？ <a href="/account/register?next={{ next_url|urlencode }}">免费注册</a>{% endif %}
     </p>
   </section>
 </main>
