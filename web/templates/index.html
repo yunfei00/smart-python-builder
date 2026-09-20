@@ -6,8 +6,8 @@
   <meta name="description" content="Smart Python Builder：上传 Python 项目，自动分析依赖并生成 Windows 应用。">
   <meta name="user-csrf" content="{{ user.csrf if user else '' }}">
   <title>Smart Python Builder · Python 一键生成 Windows 应用</title>
-  <link rel="stylesheet" href="/static/app.css?v=1.2.1-auth-resume">
-  <script src="/static/home.js?v=1.2.1-auth-claim" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v=1.2.1-ready-project">
+  <script src="/static/home.js?v=1.2.1-ready-project" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -39,7 +39,19 @@
     {% if import_blocked %}
     <div class="quota-warning"><strong>当前没有可用构建额度</strong><span>{% if user.quota_remaining <= 0 %}免费额度已经用完，不能再上传或导入新项目。{% else %}剩余额度已被待构建项目占用，请先完成已有 READY 项目。{% endif %}</span></div>
     {% endif %}
-    <div class="import-grid">
+    <div id="current-project" class="current-project-card" hidden>
+      <div class="current-project-icon" id="current-project-icon">PY</div>
+      <div class="current-project-main">
+        <small>当前项目</small>
+        <strong id="current-project-name"></strong>
+        <span id="current-project-source"></span>
+      </div>
+      <div class="current-project-meta">
+        <span id="current-project-entry"></span>
+        <span id="current-project-deps"></span>
+      </div>
+    </div>
+    <div id="import-options" class="import-grid">
       <form id="upload" class="import-option{% if import_blocked %} is-disabled{% endif %}">
         <div class="option-icon">↑</div><h3>上传项目</h3><p>支持单个 .py 文件或 ZIP 项目，最大 20 MB。文件夹请先压缩为 ZIP。</p>
         <label class="file-picker"><input id="upload-file" aria-label="Python 程序或 ZIP 项目" name="file" type="file" accept=".py,.zip" required {% if import_blocked %}disabled{% endif %}><span id="upload-file-label">选择 .py / .zip 文件</span></label>
@@ -56,7 +68,7 @@
         </div>
       </form>
     </div>
-    <p class="privacy-note">🔒 当前仅支持公开 github.com HTTPS 仓库，不递归拉取 submodule。构建文件会定期清理，请及时下载。</p>
+    <p id="import-note" class="privacy-note">🔒 当前仅支持公开 github.com HTTPS 仓库，不递归拉取 submodule。构建文件会定期清理，请及时下载。</p>
   </section>
 
   <section id="project" class="builder-card" hidden>
