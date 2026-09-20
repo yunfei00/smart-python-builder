@@ -397,6 +397,15 @@ def test_guest_can_analyze_but_build_requires_login_and_resumes_after_login(tmp_
         assert resumed.status_code == 200
         assert resumed.json()['status'] == 'READY'
 
+        session = app.state.accounts.session(client.cookies.get('builder_user'))
+        claimed = client.post(
+            f"/api/jobs/{job['id']}/claim",
+            headers={'X-CSRF-Token': session['csrf']},
+        )
+        assert claimed.status_code == 200
+        assert claimed.json()['owner_id'] == session['id']
+        assert job['id'] in client.get('/dashboard').text
+
 
 def test_auth_next_rejects_external_redirects(tmp_path):
     app = create_app(tmp_path)
