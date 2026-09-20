@@ -31,8 +31,11 @@ def test_home_ui(configured):
     page = client.get('/').text
     assert 'Smart Python Builder' in page and 'Python → Windows' in page
     assert 'id="download" disabled' in page
+    assert 'id="current-project"' in page
     assert client.get('/static/home.js').status_code == 200
-    assert 'scrollIntoView' in client.get('/static/home.js').text
+    home_js = client.get('/static/home.js').text
+    assert 'scrollIntoView' in home_js
+    assert 'renderCurrentProject' in home_js
 
 
 @pytest.mark.parametrize('status,terminal,exists,expected', [
