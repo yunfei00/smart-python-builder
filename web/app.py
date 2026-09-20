@@ -581,6 +581,27 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         return {'id': job_id, 'status': 'QUEUED'}
 
 
+    @app.post('/api/jobs/{job_id}/claim')
+    def claim_job(request: Request, job_id: str):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录')
+        if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        with lock:
+            job = get_job(job_id)
+            if job.get('owner_id') and job.get('owner_id') != user['id']:
+                raise HTTPException(404, '任务不存在')
+            if job.get('status') != 'READY':
+                if job.get('owner_id') == user['id']:
+                    return job
+                raise HTTPException(409, '只有待构建项目可以关联到账号')
+            if not job.get('owner_id'):
+                ensure_import_slot(user)
+                job['owner_id'] = user['id']
+                persist(job)
+            return job
+
     @app.post('/api/jobs/{job_id}/cancel')
     def cancel_job(request: Request, job_id: str):
         job, user = get_owned_job(job_id, request)
