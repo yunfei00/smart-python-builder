@@ -125,10 +125,20 @@ $('github-import').onsubmit = async event => {
   }
 };
 $('build').onclick = async () => {
-  const current = generation; $('build').disabled = true;
+  const current = generation;
   clearError();
+  if (!$('entry').value) {
+    showError('请先选择程序入口');
+    return;
+  }
+  const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+  if (!loggedIn) {
+    const next = '/?job=' + encodeURIComponent(job.id) + '#project';
+    location.href = '/account/login?next=' + encodeURIComponent(next);
+    return;
+  }
+  $('build').disabled = true;
   try {
-    if (!$('entry').value) throw Error('请先选择程序入口');
     const form = new FormData(); form.set('entry', $('entry').value); form.set('mode', $('mode').value);
     await api('/api/jobs/' + job.id + '/build', {method:'POST', body:form});
     if (current !== generation) return;
@@ -180,5 +190,20 @@ $('entry').onchange = preview; $('mode').onchange = preview;
 $('upload-file')?.addEventListener('change', renderSelectedFile);
 renderSelectedFile();
 renderStatus({status:'READY'});
+async function resumeExisting(id) {
+  try {
+    const value = await api('/api/jobs/' + encodeURIComponent(id));
+    if (value.status === 'READY') {
+      showProject(value, generation);
+      renderStatus(value);
+      return;
+    }
+    $('progress').hidden = false;
+    job = value;
+    poll(id, generation);
+  } catch (error) {
+    showError(error.message);
+  }
+}
 const existing = new URLSearchParams(location.search).get('job');
-if (existing) { $('progress').hidden = false; job = {id:existing}; poll(existing, generation); }
+if (existing) resumeExisting(existing);
