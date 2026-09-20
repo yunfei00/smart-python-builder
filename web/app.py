@@ -382,6 +382,58 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         response.delete_cookie(USER_COOKIE, path='/')
         return response
 
+    @app.get('/account/settings', response_class=HTMLResponse)
+    def account_settings(request: Request):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login?next=%2Faccount%2Fsettings', status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name='account_settings.html',
+            context={'user': user, 'changed': request.query_params.get('changed') == '1', 'error': ''},
+            headers={'Cache-Control': 'no-store'},
+        )
+
+    @app.post('/account/password')
+    def change_account_password(
+        request: Request,
+        current_password: str = Form(...),
+        new_password: str = Form(...),
+        confirm_password: str = Form(...),
+        csrf: str = Form(...),
+    ):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login?next=%2Faccount%2Fsettings', status_code=303)
+        if not secrets.compare_digest(csrf, user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        if new_password != confirm_password:
+            return templates.TemplateResponse(
+                request=request,
+                name='account_settings.html',
+                context={'user': user, 'changed': False, 'error': '两次输入的新密码不一致'},
+                status_code=400,
+                headers={'Cache-Control': 'no-store'},
+            )
+        try:
+            accounts.change_password(user['id'], current_password, new_password)
+        except ValueError as exc:
+            return templates.TemplateResponse(
+                request=request,
+                name='account_settings.html',
+                context={'user': user, 'changed': False, 'error': str(exc)},
+                status_code=400,
+                headers={'Cache-Control': 'no-store'},
+            )
+        token, _ = accounts.new_session(user['id'])
+        response = RedirectResponse('/account/settings?changed=1', status_code=303)
+        response.set_cookie(
+            USER_COOKIE, token, httponly=True, samesite='lax',
+            secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
+        )
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.get('/dashboard', response_class=HTMLResponse)
     def dashboard(request: Request):
         user = account_session(request)
