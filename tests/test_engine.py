@@ -1,4 +1,10 @@
 from pathlib import Path
+import os
+import subprocess
+import sys
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -45,3 +51,67 @@ def test_fake_success_without_artifact_fails(tmp_path,monkeypatch):
     monkeypatch.setattr(engine,'_run',lambda *args:None)
     result=engine.build(BuildRequest(source))
     assert not result.success and 'artifact is missing' in result.error
+
+
+@pytest.mark.parametrize('layout', ['', 'src'])
+@pytest.mark.parametrize('entry_name', ['__main__', 'app'])
+def test_package_launcher_preserves_module_context(tmp_path, layout, entry_name):
+    project = tmp_path / 'project'
+    package = project / layout / 'demo' / 'nested'
+    package.mkdir(parents=True)
+    (package.parent / '__init__.py').write_text('')
+    (package / '__init__.py').write_text('')
+    (package.parent / 'helper.py').write_text('value = "package-ok"')
+    entry = package / f'{entry_name}.py'
+    entry.write_text(
+        'from ..helper import value\nimport sys\n'
+        'if __name__ == "__main__":\n'
+        '    print(value, __package__, __spec__.name, sys.argv[1])\n'
+        '    raise SystemExit(7)\n'
+    )
+    launcher, args = BuildEngine._prepare_entry(entry, project, tmp_path)
+    module = f'demo.nested.{entry_name}'
+    assert args == ['--paths', str(project / layout), '--hidden-import', module]
+    result = subprocess.run([sys.executable, str(launcher), 'argument'],
+                            cwd=tmp_path, env={**os.environ, 'PYTHONPATH': str(project / layout)},
+                            capture_output=True, text=True)
+    assert result.returncode == 7, result.stderr
+    assert result.stdout.strip() == f'package-ok demo.nested {module} argument'
+
+
+def test_plain_script_does_not_get_package_launcher(tmp_path):
+    entry = tmp_path / 'main.py'
+    entry.write_text('print("ok")')
+    assert BuildEngine._prepare_entry(entry, tmp_path, tmp_path) == (entry, [])
+
+
+@pytest.mark.parametrize('layout', ['', 'src'])
+@pytest.mark.parametrize('entry_name', ['__main__', 'app'])
+def test_package_launcher_preserves_module_context(tmp_path, layout, entry_name):
+    project = tmp_path / 'project'
+    package = project / layout / 'demo' / 'nested'
+    package.mkdir(parents=True)
+    (package.parent / '__init__.py').write_text('')
+    (package / '__init__.py').write_text('')
+    (package.parent / 'helper.py').write_text('value = "package-ok"')
+    entry = package / f'{entry_name}.py'
+    entry.write_text(
+        'from ..helper import value\nimport sys\n'
+        'if __name__ == "__main__":\n'
+        '    print(value, __package__, __spec__.name, sys.argv[1])\n'
+        '    raise SystemExit(7)\n'
+    )
+    launcher, args = BuildEngine._prepare_entry(entry, project, tmp_path)
+    module = f'demo.nested.{entry_name}'
+    assert args == ['--paths', str(project / layout), '--hidden-import', module]
+    result = subprocess.run([sys.executable, str(launcher), 'argument'],
+                            cwd=tmp_path, env={**os.environ, 'PYTHONPATH': str(project / layout)},
+                            capture_output=True, text=True)
+    assert result.returncode == 7, result.stderr
+    assert result.stdout.strip() == f'package-ok demo.nested {module} argument'
+
+
+def test_plain_script_does_not_get_package_launcher(tmp_path):
+    entry = tmp_path / 'main.py'
+    entry.write_text('print("ok")')
+    assert BuildEngine._prepare_entry(entry, tmp_path, tmp_path) == (entry, [])
