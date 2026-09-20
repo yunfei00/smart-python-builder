@@ -510,3 +510,45 @@ def test_claiming_guest_project_respects_reserved_free_quota(tmp_path):
         )
         assert response.status_code == 402
         assert app.state.jobs[guest_id]['owner_id'] is None
+
+
+def test_managed_user_creation_and_admin_password_reset(tmp_path):
+    store = AccountStore(tmp_path / 'accounts.sqlite3')
+    free_user = store.create_managed_user(
+        'managed@example.com',
+        'initial-password',
+        plan='FREE',
+        remaining=15,
+    )
+    assert free_user['plan'] == 'FREE'
+    assert free_user['quota_remaining'] == 15
+
+    test_user = store.create_managed_user(
+        'internal-managed@example.com',
+        'initial-password',
+        plan='TEST',
+        remaining=999,
+    )
+    assert test_user['plan'] == 'TEST'
+    assert test_user['quota_unlimited'] is True
+
+    token, _ = store.new_session(free_user['id'])
+    assert store.session(token)
+    store.reset_password(free_user['id'], 'replacement-password')
+    assert store.authenticate('managed@example.com', 'initial-password') is None
+    assert store.authenticate('managed@example.com', 'replacement-password')['id'] == free_user['id']
+    assert store.session(token) is None
+
+
+def test_upload_job_keeps_project_filename_for_ready_summary(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        response = client.post(
+            '/api/uploads',
+            files={'file': ('example-tool.py', io.BytesIO(b"print('ok')"), 'text/x-python')},
+        )
+        assert response.status_code == 200
+        job = response.json()
+        assert job['project_name'] == 'example-tool'
+        assert job['upload_filename'] == 'example-tool.py'
+        assert job['source_type'] == 'upload'
