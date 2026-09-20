@@ -159,6 +159,23 @@ class AccountStore:
                 (hashlib.sha256(token.encode()).hexdigest(),),
             )
 
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> dict:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT password_hash FROM users WHERE id=? AND disabled=0",
+                (user_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError("用户不存在")
+            if not _verify(current_password, row["password_hash"]):
+                raise ValueError("当前密码不正确")
+            if current_password == new_password:
+                raise ValueError("新密码不能与当前密码相同")
+            password_hash = _password_hash(new_password)
+            db.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user_id))
+            db.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
+        return self.get_user(user_id)
+
     def consume_build(self, user_id: str) -> dict:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
