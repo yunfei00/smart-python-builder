@@ -50,11 +50,21 @@ def test_web_queue_is_bounded(tmp_path, monkeypatch):
         def shutdown(self, wait):
             pass
     monkeypatch.setattr('web.app.ThreadPoolExecutor', DeferredExecutor)
-    with TestClient(create_app(tmp_path)) as client:
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        registered = client.post(
+            '/account/register',
+            data={'email': 'queue@example.com', 'password': 'password123'},
+            follow_redirects=False,
+        )
+        assert registered.status_code == 303
+        app.state.accounts.set_plan('queue@example.com', 'TEST')
+        session = app.state.accounts.session(client.cookies.get('builder_user'))
+        headers = {'X-CSRF-Token': session['csrf']}
         ids = [client.post('/api/uploads', files={'file': ('main.py', b'print(1)')}).json()['id'] for _ in range(9)]
         for identifier in ids[:8]:
-            assert client.post('/api/jobs/' + identifier + '/build', data={'entry': 'main.py'}).status_code == 200
-        assert client.post('/api/jobs/' + ids[8] + '/build', data={'entry': 'main.py'}).status_code == 429
+            assert client.post('/api/jobs/' + identifier + '/build', data={'entry': 'main.py'}, headers=headers).status_code == 200
+        assert client.post('/api/jobs/' + ids[8] + '/build', data={'entry': 'main.py'}, headers=headers).status_code == 429
         assert len(pending) == 8
 
 
