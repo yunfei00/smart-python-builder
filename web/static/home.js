@@ -72,6 +72,9 @@ function showProject(next, current) {
   $('dependencies').textContent = '✓ 依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
   $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
   $('plan').textContent = JSON.stringify(job.plan, null, 2); $('build').disabled = false;
+  const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+  $('build').textContent = loggedIn ? '生成 Windows 应用 →' : '登录后生成 Windows 应用 →';
+  if ($('build-auth-note')) $('build-auth-note').hidden = loggedIn;
   $('project').scrollIntoView({behavior:'smooth', block:'center'});
 }
 function beginImport() {
