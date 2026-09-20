@@ -35,7 +35,7 @@
   </section>
 
   <section class="builder-card" id="builder">
-    <div class="section-heading"><span class="step-number">01</span><div><h2>导入你的 Python 项目</h2><p>选择本地项目，或直接从公开 GitHub 仓库导入。</p></div></div>
+    <div class="section-heading"><span class="step-number">01</span><div><h2 id="builder-step-title">导入你的 Python 项目</h2><p id="builder-step-subtitle">选择本地项目，或直接从公开 GitHub 仓库导入。</p></div></div>
     {% if import_blocked %}
     <div class="quota-warning"><strong>当前没有可用构建额度</strong><span>{% if user.quota_remaining <= 0 %}免费额度已经用完，不能再上传或导入新项目。{% else %}剩余额度已被待构建项目占用，请先完成已有 READY 项目。{% endif %}</span></div>
     {% endif %}
