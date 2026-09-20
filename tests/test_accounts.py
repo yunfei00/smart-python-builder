@@ -357,3 +357,97 @@ def test_free_quota_can_be_refunded_for_pre_execution_cancel(tmp_path):
     refunded = store.refund_build(user['id'])
     assert refunded['quota_remaining'] == 3
     assert refunded['quota_used'] == 0
+
+
+def test_guest_can_analyze_but_build_requires_login_and_resumes_after_login(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        upload = client.post(
+            '/api/uploads',
+            files={'file': ('guest.py', io.BytesIO(b"print('guest')"), 'text/x-python')},
+        )
+        assert upload.status_code == 200
+        job = upload.json()
+        assert job['status'] == 'READY'
+        assert job['owner_id'] is None
+
+        denied = client.post(
+            f"/api/jobs/{job['id']}/build",
+            data={'entry': 'guest.py', 'mode': 'onefile'},
+        )
+        assert denied.status_code == 401
+        assert '登录' in denied.json()['detail']
+        assert app.state.jobs[job['id']]['status'] == 'READY'
+
+        next_url = f"/?job={job['id']}#project"
+        login = client.get('/account/login', params={'next': next_url})
+        assert login.status_code == 200
+        assert f'value="{next_url}"' in login.text
+
+        app.state.accounts.create_user('resume@example.com', 'password123')
+        signed_in = client.post(
+            '/account/login',
+            data={'email': 'resume@example.com', 'password': 'password123', 'next': next_url},
+            follow_redirects=False,
+        )
+        assert signed_in.status_code == 303
+        assert signed_in.headers['location'] == next_url
+
+        resumed = client.get(f"/api/jobs/{job['id']}")
+        assert resumed.status_code == 200
+        assert resumed.json()['status'] == 'READY'
+
+
+def test_auth_next_rejects_external_redirects(tmp_path):
+    app = create_app(tmp_path)
+    app.state.accounts.create_user('safe@example.com', 'password123')
+    with TestClient(app) as client:
+        response = client.post(
+            '/account/login',
+            data={
+                'email': 'safe@example.com',
+                'password': 'password123',
+                'next': 'https://evil.example/phish',
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers['location'] == '/dashboard'
+
+
+def test_customer_can_change_password_and_keep_fresh_session(tmp_path):
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        user, _ = _registered_client(app, client, 'password@example.com')
+        current = app.state.accounts.session(client.cookies.get('builder_user'))
+        settings = client.get('/account/settings')
+        assert settings.status_code == 200
+        assert '修改密码' in settings.text
+
+        mismatch = client.post(
+            '/account/password',
+            data={
+                'current_password': 'password123',
+                'new_password': 'new-password-123',
+                'confirm_password': 'different-password',
+                'csrf': current['csrf'],
+            },
+        )
+        assert mismatch.status_code == 400
+        assert '不一致' in mismatch.text
+
+        changed = client.post(
+            '/account/password',
+            data={
+                'current_password': 'password123',
+                'new_password': 'new-password-123',
+                'confirm_password': 'new-password-123',
+                'csrf': current['csrf'],
+            },
+            follow_redirects=False,
+        )
+        assert changed.status_code == 303
+        assert changed.headers['location'] == '/account/settings?changed=1'
+        assert app.state.accounts.authenticate('password@example.com', 'password123') is None
+        assert app.state.accounts.authenticate('password@example.com', 'new-password-123')['id'] == user['id']
+        assert client.get('/account/settings').status_code == 200
