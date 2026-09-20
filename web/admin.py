@@ -94,6 +94,29 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
             raise HTTPException(503, '用户管理尚未启用')
         return {'users': accounts.list_users()}
 
+    @app.post('/api/admin/users', dependencies=[Depends(admin)])
+    def create_user(payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.create_managed_user(
+                payload.get('email', ''),
+                payload.get('password', ''),
+                plan=payload.get('plan', 'FREE'),
+                remaining=payload.get('remaining', 3),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/admin/users/{user_id}/password', dependencies=[Depends(admin)])
+    def reset_user_password(user_id: str, payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.reset_password(user_id, payload.get('password', ''))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post('/api/admin/users/{user_id}/plan', dependencies=[Depends(admin)])
     def set_user_plan(user_id: str, payload: dict):
         if accounts is None:

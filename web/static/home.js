@@ -62,9 +62,31 @@ function renderStatus(value) {
   const bar = document.querySelector('.build-track span');
   if (bar) bar.style.width = (progress[value.status] ?? 12) + '%';
 }
+function renderCurrentProject(value) {
+  const card = $('current-project');
+  if (!card || !value) return;
+  const github = value.source_type === 'github';
+  const projectName = value.project_name || (github ? 'GitHub project' : 'Python project');
+  const source = github
+    ? 'GitHub · ' + (value.repository_url || '公开仓库') + (value.repository_ref ? ' · ' + value.repository_ref : ' · 默认分支')
+    : '本地上传 · ' + (value.upload_filename || projectName);
+  const entryCount = Array.isArray(value.entries) ? value.entries.length : 0;
+  const depCount = Array.isArray(value.dependencies) ? value.dependencies.length : 0;
+  $('current-project-icon').textContent = github ? 'GH' : 'PY';
+  $('current-project-name').textContent = projectName;
+  $('current-project-source').textContent = source;
+  $('current-project-entry').textContent = value.entry ? '入口：' + value.entry : '入口候选：' + entryCount + ' 个';
+  $('current-project-deps').textContent = '依赖：' + depCount + ' 项';
+  card.hidden = false;
+  if ($('builder-step-title')) $('builder-step-title').textContent = '当前 Python 项目';
+  if ($('builder-step-subtitle')) $('builder-step-subtitle').textContent = '项目已导入并完成分析，可以继续确认构建配置。';
+  if ($('import-options')) $('import-options').hidden = true;
+  if ($('import-note')) $('import-note').hidden = true;
+}
 function showProject(next, current) {
   if (current !== generation) return;
   clearError();
+  renderCurrentProject(next);
   job = next; $('ids').textContent = '项目分析完成 · 任务 ' + job.id; $('log').textContent = '等待构建开始。';
   $('project').hidden = false; $('progress').hidden = false; $('entry').replaceChildren();
   if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
@@ -80,6 +102,11 @@ function showProject(next, current) {
 function beginImport() {
   const current = ++generation;
   clearError(); $('project').hidden = true; $('progress').hidden = true;
+  if ($('current-project')) $('current-project').hidden = true;
+  if ($('builder-step-title')) $('builder-step-title').textContent = '导入你的 Python 项目';
+  if ($('builder-step-subtitle')) $('builder-step-subtitle').textContent = '选择本地项目，或直接从公开 GitHub 仓库导入。';
+  if ($('import-options')) $('import-options').hidden = false;
+  if ($('import-note')) $('import-note').hidden = false;
   $('progress').classList.remove('is-success', 'is-failed');
   $('ids').textContent = '正在分析项目结构和依赖…';
   renderStatus({status:'READY'});
@@ -196,6 +223,7 @@ renderStatus({status:'READY'});
 async function resumeExisting(id) {
   try {
     let value = await api('/api/jobs/' + encodeURIComponent(id));
+    renderCurrentProject(value);
     const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
     if (value.status === 'READY' && !value.owner_id && loggedIn) {
       value = await api('/api/jobs/' + encodeURIComponent(id) + '/claim', {method:'POST'});

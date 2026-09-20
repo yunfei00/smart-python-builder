@@ -31,8 +31,11 @@ def test_home_ui(configured):
     page = client.get('/').text
     assert 'Smart Python Builder' in page and 'Python → Windows' in page
     assert 'id="download" disabled' in page
+    assert 'id="current-project"' in page
     assert client.get('/static/home.js').status_code == 200
-    assert 'scrollIntoView' in client.get('/static/home.js').text
+    home_js = client.get('/static/home.js').text
+    assert 'scrollIntoView' in home_js
+    assert 'renderCurrentProject' in home_js
 
 
 @pytest.mark.parametrize('status,terminal,exists,expected', [
@@ -253,9 +256,36 @@ def test_admin_user_management(configured):
     users_page = client.get('/admin/users')
     assert users_page.status_code == 200
     assert '用户管理' in users_page.text
+    assert '添加用户' in users_page.text
+    assert 'password-modal' in users_page.text
+
+    created = client.post(
+        '/api/admin/users',
+        headers=headers,
+        json={
+            'email':'managed@example.com',
+            'password':'initial-password',
+            'plan':'FREE',
+            'remaining':12,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()['email'] == 'managed@example.com'
+    assert created.json()['quota_remaining'] == 12
+    managed_id = created.json()['id']
+    assert app.state.accounts.authenticate('managed@example.com', 'initial-password')['id'] == managed_id
 
     listed = client.get('/api/admin/users').json()['users']
-    assert {row['email'] for row in listed} >= {'free@example.com', 'test@example.com'}
+    assert {row['email'] for row in listed} >= {'free@example.com', 'test@example.com', 'managed@example.com'}
+
+    reset_password = client.post(
+        f'/api/admin/users/{managed_id}/password',
+        headers=headers,
+        json={'password':'replacement-password'},
+    )
+    assert reset_password.status_code == 200
+    assert app.state.accounts.authenticate('managed@example.com', 'initial-password') is None
+    assert app.state.accounts.authenticate('managed@example.com', 'replacement-password')['id'] == managed_id
 
     quota = client.post(
         f"/api/admin/users/{first['id']}/quota",
