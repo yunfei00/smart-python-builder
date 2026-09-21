@@ -1,4 +1,4 @@
-# Smart Python Builder 1.2.1
+# Smart Python Builder 1.2.2
 
 Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应用。
 面向可信内部用户：使用者通过网页上传、选择入口、生成并下载 EXE 或 ZIP，
@@ -75,7 +75,8 @@ Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应
 旧版仅邮箱账号会在首次启动 v1.2.1 时自动迁移：保留原用户 ID、密码哈希、套餐、额度、停用状态与 Session 关联，
 并从原邮箱前缀生成唯一用户名；原邮箱登录继续兼容。无邮箱账号在数据库中保存为真正的 NULL。
 
-- **FREE**：默认 3 次构建额度；READY 项目会预留未来构建槽位，实际开始构建时消费额度。
+- **家庭免费模式（默认）**：新注册用户默认获得 10000 次 FREE 构建额度；管理员可在系统设置中修改该额度，并可一键把现有所有 FREE 用户的剩余额度补到当前配置值。
+- **商业模式（预留）**：新注册用户使用基础 FREE 3 次规则；当前不包含支付、订单或充值功能。
 - **TEST**：内部无限构建账号，不受 FREE 次数限制。
 - 用户工作台显示自己的项目、状态与额度；READY 项目可以继续，运行中任务可以取消，终态项目可以删除。
 - 用户可在账号设置中修改密码；修改成功后旧 Session 失效，并为当前浏览器创建新 Session。
@@ -123,6 +124,8 @@ AI/飞书从与后台相同的 SettingsStore 读取，生产没有可选的 Fake
 |---|---|
 | `BUILDER_ALLOWED_HOSTS` | 主机名/IP 逗号分隔，支持 `*`，去空白/空项，拒绝全空 |
 | `BUILDER_RETENTION_DAYS` | 1–3650 天 |
+| `BUILDER_SERVICE_MODE` | `family_free`（默认）或 `commercial` |
+| `BUILDER_FAMILY_FREE_QUOTA` | 家庭免费模式默认 FREE 额度，默认 10000 |
 | `BUILDER_AI_ENABLED` | `true` / `false` |
 | `BUILDER_AI_PROVIDER` | `openai-compatible` |
 | `BUILDER_AI_API_KEY` | AI 密钥 |
