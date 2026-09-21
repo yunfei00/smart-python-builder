@@ -158,3 +158,37 @@ def test_git_dependency_build_plan_validation(tmp_path):
     dependency = "android-dut-agent @ git+https://github.com/example/android-dut-agent.git@v1.2.0"
     plan = BuildPlan("main.py", [dependency], "pyproject.toml")
     plan.validate(tmp_path)
+
+
+def test_discovers_nonconventional_runnable_entries(tmp_path):
+    write(tmp_path / "scripts" / "run_gui.py", """
+from PySide6.QtWidgets import QApplication
+
+def main():
+    app = QApplication([])
+    return app.exec()
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "tools" / "capture_cli.py", """
+def main():
+    print("capture")
+
+if __name__ == "__main__":
+    main()
+""")
+    result = analyze_project(tmp_path)
+    entries = [str(path.relative_to(tmp_path)) for path in result.entry_candidates]
+    assert entries == ["scripts/run_gui.py", "tools/capture_cli.py"]
+    assert result.entry_point is None
+    assert result.entry_is_ambiguous
+
+
+def test_entry_discovery_excludes_test_launchers(tmp_path):
+    write(tmp_path / "main.py", "print('main')\n")
+    write(tmp_path / "tests" / "run.py", "if __name__ == '__main__':\n    print('test')\n")
+    write(tmp_path / "test_tool.py", "if __name__ == '__main__':\n    print('test')\n")
+    result = analyze_project(tmp_path)
+    assert result.entry_point == (tmp_path / "main.py").resolve()
+    assert result.entry_candidates == [(tmp_path / "main.py").resolve()]
