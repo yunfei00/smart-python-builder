@@ -1,6 +1,6 @@
 [project]
 name = "smart-python-builder"
-version = "1.2.2"
+version = "1.3.0"
 description = "Build isolated Windows executables from Python sources"
 requires-python = ">=3.11"
 dependencies = [
