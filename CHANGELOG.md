@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.1 (2026-09-21)
+
+- Added username-first customer accounts with optional email, legacy email-login compatibility and automatic migration of existing email-only accounts.
+- Added administrator user management: create users, FREE/TEST plan switching, custom/reset quotas, disable/enable accounts and password resets.
+- Added customer password changes, session invalidation after password reset/change, and improved workspace account display.
+- Added guest project analysis followed by login/registration and seamless READY-project continuation without re-uploading.
+- Added project cancellation/deletion flows, including Windows process-tree termination for active builds and cleanup of associated project/workspace files.
+- Improved READY project context, administrator settings/user-management UI, and preserved uploaded project metadata.
+- Improved package entry handling and optional dependency detection for imported source projects.
+- Full regression suite verified at 246 passed before release preparation.
+
+## 1.2.0 (2026-09-19)
+
+- Added the commercial landing page and customer workspace.
+- Added customer registration/login/logout, FREE build quota enforcement and internal unlimited TEST accounts.
+- Added ownership isolation for customer jobs and quota-aware import/build flows.
+- Improved GitHub import progress/diagnostics and upload/build state presentation.
+
 ## 1.1.0 (2026-09-18)
 
 - Added direct import and build support for public GitHub repositories.
