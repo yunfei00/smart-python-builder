@@ -1,4 +1,4 @@
-# Smart Python Builder 1.2.2
+# Smart Python Builder 1.3.0
 
 Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应用。
 面向可信内部用户：使用者通过网页上传、选择入口、生成并下载 EXE 或 ZIP，
