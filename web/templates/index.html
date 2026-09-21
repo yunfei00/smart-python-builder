@@ -7,7 +7,7 @@
   <meta name="user-csrf" content="{{ user.csrf if user else '' }}">
   <title>Smart Python Builder · Python 一键生成 Windows 应用</title>
   <link rel="stylesheet" href="/static/app.css?v=1.2.1-ready-project">
-  <script src="/static/home.js?v=1.2.1-ready-project" defer></script>
+  <script src="/static/home.js?v=multi-app-build-2" defer></script>
 </head>
 <body>
 <main class="shell">
@@ -74,7 +74,7 @@
   <section id="project" class="builder-card" hidden>
     <div class="section-heading"><span class="step-number">02</span><div><h2>确认构建配置</h2><p>我们已经分析项目，只需确认入口和输出格式。</p></div></div>
     <div class="analysis-summary"><p id="dependencies"></p><p id="type"></p></div>
-    <div class="config-grid"><div><label for="entry">程序入口</label><select id="entry"></select></div><div><label for="mode">输出格式</label><select id="mode"><option value="onefile">单个可执行文件 EXE</option><option value="onedir">完整应用文件夹 ZIP</option></select></div></div>
+    <div class="config-grid"><div><label>程序入口（可多选）</label><div id="entry-list"></div><select id="entry" hidden></select></div><div><label for="mode">输出格式</label><select id="mode"><option value="onefile">单个可执行文件 EXE</option><option value="onedir">完整应用文件夹 ZIP</option></select></div></div>
     <details class="advanced"><summary>高级信息 · 查看构建计划</summary><pre id="plan"></pre></details>
     <div class="actions"><button id="build">生成 Windows 应用 →</button></div><p id="build-auth-note" class="meta build-auth-note" hidden>项目分析已完成。登录或注册后即可继续当前项目，不需要重新上传。</p>
   </section>
