@@ -192,3 +192,40 @@ def test_entry_discovery_excludes_test_launchers(tmp_path):
     result = analyze_project(tmp_path)
     assert result.entry_point == (tmp_path / "main.py").resolve()
     assert result.entry_candidates == [(tmp_path / "main.py").resolve()]
+
+
+def test_classifies_recommended_internal_and_auxiliary_entries(tmp_path):
+    write(tmp_path / "src" / "demo" / "ui" / "app.py", """
+from PySide6.QtWidgets import QApplication
+def main():
+    app = QApplication([])
+    return app.exec()
+""")
+    write(tmp_path / "scripts" / "run_gui.py", """
+def main():
+    pass
+if __name__ == "__main__":
+    main()
+""")
+    write(tmp_path / "scripts" / "run_combined_capture.py", """
+def main():
+    pass
+if __name__ == "__main__":
+    main()
+""")
+    write(tmp_path / "scripts" / "gui_smoke.py", """
+if __name__ == "__main__":
+    print("smoke")
+""")
+    write(tmp_path / "scripts" / "probe_fsw.py", """
+if __name__ == "__main__":
+    print("probe")
+""")
+    result = analyze_project(tmp_path)
+    details = {item["path"]: item for item in result.entry_details}
+    assert details["scripts/run_gui.py"]["recommended"] is True
+    assert details["scripts/run_combined_capture.py"]["recommended"] is True
+    assert details["src/demo/ui/app.py"]["kind"] == "internal"
+    assert details["src/demo/ui/app.py"]["recommended"] is False
+    assert details["scripts/gui_smoke.py"]["kind"] == "auxiliary"
+    assert details["scripts/probe_fsw.py"]["kind"] == "auxiliary"
