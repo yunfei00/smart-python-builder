@@ -339,6 +339,90 @@ def test_admin_user_management(configured):
     assert reset.json()['quota_remaining'] == 10000
 
 
+def test_family_free_mode_defaults_bulk_top_up_and_commercial_switch(configured):
+    app, client, headers = configured
+    settings = client.get('/api/admin/settings').json()
+    assert settings['service_mode'] == 'family_free'
+    assert settings['family_free_quota'] == 10000
+
+    created = client.post(
+        '/api/admin/users',
+        headers=headers,
+        json={'username':'family-user','password':'password123','plan':'FREE'},
+    )
+    assert created.status_code == 200
+    user_id = created.json()['id']
+    assert created.json()['quota_remaining'] == 10000
+
+    app.state.accounts.consume_build(user_id)
+    app.state.accounts.consume_build(user_id)
+    assert app.state.accounts.get_user(user_id)['quota_remaining'] == 9998
+
+    saved = client.post(
+        '/api/admin/settings',
+        headers=headers,
+        json={'service_mode':'family_free','family_free_quota':12000},
+    )
+    assert saved.status_code == 200
+    assert saved.json()['settings']['family_free_quota'] == 12000
+
+    topped = client.post('/api/admin/users/free-quota/top-up', headers=headers)
+    assert topped.status_code == 200
+    assert topped.json()['remaining'] == 12000
+    user = app.state.accounts.get_user(user_id)
+    assert user['quota_used'] == 2
+    assert user['quota_remaining'] == 12000
+    assert user['quota_total'] == 12002
+
+    test_plan = client.post(
+        f'/api/admin/users/{user_id}/plan',
+        headers=headers,
+        json={'plan':'TEST'},
+    )
+    assert test_plan.status_code == 200 and test_plan.json()['quota_unlimited']
+    free_plan = client.post(
+        f'/api/admin/users/{user_id}/plan',
+        headers=headers,
+        json={'plan':'FREE'},
+    )
+    assert free_plan.status_code == 200
+    assert free_plan.json()['quota_remaining'] == 12000
+
+    app.state.accounts.consume_build(user_id)
+    reset = client.post(f'/api/admin/users/{user_id}/quota/reset', headers=headers)
+    assert reset.status_code == 200
+    assert reset.json()['quota_used'] == 0
+    assert reset.json()['quota_remaining'] == 12000
+
+    commercial = client.post(
+        '/api/admin/settings',
+        headers=headers,
+        json={'service_mode':'commercial'},
+    )
+    assert commercial.status_code == 200
+    assert commercial.json()['settings']['service_mode'] == 'commercial'
+    assert client.post('/api/admin/users/free-quota/top-up', headers=headers).status_code == 400
+
+    registered = client.post(
+        '/account/register',
+        data={'username':'commercial-user','password':'password123'},
+        follow_redirects=False,
+    )
+    assert registered.status_code == 303
+    account = app.state.accounts.authenticate('commercial-user', 'password123')
+    assert account['quota_remaining'] == 3
+
+
+def test_account_policy_settings_ui(configured):
+    _, client, _ = configured
+    page = client.get('/admin/settings').text
+    assert '账号与额度' in page
+    assert '家庭免费模式' in page
+    assert '商业模式（预留）' in page
+    assert 'family_free_quota' in page
+    assert 'top-up-free-users' in page
+
+
 def test_set_admin_password_replaces_existing_password_and_sessions(tmp_path):
     store = SettingsStore(tmp_path / 'settings.sqlite3')
     store.set_admin_password('first-password')
