@@ -231,7 +231,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             raise HTTPException(402, '免费构建额度已用完，当前不能再导入新项目')
         raise HTTPException(402, '当前剩余额度已被待构建项目占用，请先完成已有 READY 项目后再导入')
 
-    def run_job(job_id, entry, mode):
+    def run_job(job_id, entries, mode):
         job = get_job(job_id)
         with lock:
             if job.get('cancel_requested'):
@@ -269,14 +269,36 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             builder.engine.on_created = created
             builder.on_state = state_changed
             builder.web_job_id = job_id
-            result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
-            job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file), attempts=result.attempts)
+            if len(entries) == 1:
+                result = builder.build(Path(job['source']), entry_point=entries[0], mode=mode)
+                plans = [result.plan]
+            else:
+                analysis = analyze_project(job['source'])
+                selected = [analysis.project_root / entry for entry in entries]
+                plans = [builder.experiences.plan(analysis, entry, mode=mode) for entry in selected]
+                for plan in plans:
+                    plan.validate(analysis.project_root)
+                build = builder.engine.build_many(analysis.source, selected, plans)
+                from builder.smart import SmartBuildResult
+                result = SmartBuildResult(analysis, build, plans[0], 'SUCCESS' if build.success else 'FAILED', [], ['BUILDING', 'SUCCESS' if build.success else 'FAILED'])
+            job.update(build_id=result.build.build_id, plan=[plan.to_dict() for plan in plans] if len(plans) > 1 else plans[0].to_dict(), selected_entries=entries, log=str(result.build.log_file), attempts=result.attempts)
             if result.status == 'CANCELED' or job.get('cancel_requested'):
                 job.update(status='CANCELED', error='Build cancelled by user')
             elif result.build.success:
-                artifact = result.build.artifact
-                if artifact.is_dir():
-                    artifact = Path(shutil.make_archive(str(artifact), 'zip', artifact.parent, artifact.name))
+                if len(entries) > 1:
+                    bundle = result.build.workspace / 'artifacts'
+                    bundle.mkdir(exist_ok=True)
+                    for artifact in result.build.artifacts:
+                        if artifact.is_dir():
+                            target = Path(shutil.make_archive(str(bundle / artifact.name), 'zip', artifact.parent, artifact.name))
+                        else:
+                            target = bundle / artifact.name
+                            shutil.copy2(artifact, target)
+                    artifact = Path(shutil.make_archive(str(result.build.workspace / 'multi-apps'), 'zip', bundle))
+                else:
+                    artifact = result.build.artifact
+                    if artifact.is_dir():
+                        artifact = Path(shutil.make_archive(str(artifact), 'zip', artifact.parent, artifact.name))
                 job.update(status='SUCCESS', artifact=str(artifact))
             else:
                 job.update(status=result.status, error=result.build.error, attempts=result.attempts)
@@ -665,7 +687,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         return builder.experiences.plan(analysis, analysis.project_root / entry, mode=mode).to_dict()
 
     @app.post('/api/jobs/{job_id}/build')
-    def start(request: Request, job_id: str, entry: str = Form(...), mode: str = Form('onefile')):
+    def start(request: Request, job_id: str, entry: str = Form(''), entries: str = Form(''), mode: str = Form('onefile')):
         user = account_session(request)
         if not user:
             raise HTTPException(401, '请先登录或注册，再开始 Windows 构建')
@@ -673,7 +695,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         with lock:
             if job['status'] != 'READY':
                 raise HTTPException(409, '任务已开始')
-            if entry not in job['entries'] or mode not in {'onefile', 'onedir'}:
+            selected_entries = [value for value in entries.split('|') if value] if entries else ([entry] if entry else [])
+            if not selected_entries or any(value not in job['entries'] for value in selected_entries) or len(set(selected_entries)) != len(selected_entries) or mode not in {'onefile', 'onedir'}:
                 raise HTTPException(400, '请选择有效入口和输出格式')
             if sum(not item.get('terminal') and item['status'] != 'READY' for item in jobs.values()) >= 8:
                 raise HTTPException(429, '构建队列已满，请稍后重试')
@@ -691,7 +714,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             job.update(status='QUEUED', terminal=False, cancel_requested=False, started_at=time.time())
             analytics.start(job_id, user['id'], job['started_at'])
             persist(job)
-            future = pool.submit(run_job, job_id, entry, mode)
+            future = pool.submit(run_job, job_id, selected_entries, mode)
             futures[job_id] = future
         return {'id': job_id, 'status': 'QUEUED'}
 
