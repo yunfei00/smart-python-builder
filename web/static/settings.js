@@ -50,7 +50,7 @@ async function action(form, path, save = false) {
     if (save) populate(result.settings, form);
     message.className = 'message success'; message.textContent = result.message;
   } catch (error) { message.className = 'message error'; message.textContent = error.message; }
-  finally { buttons.forEach(button => button.disabled = false); }
+  finally { buttons.forEach(button => button.disabled = false); serviceModeUi(); }
 }
 for (const id of ['account-policy-settings','builder-settings','ai-settings','feishu-settings']) $(id).onsubmit = event => { event.preventDefault(); action(event.target, '/api/admin/settings', true); };
 for (const button of document.querySelectorAll('[data-replace]')) button.onclick = () => { const input = $(button.dataset.replace); input.hidden = false; input.disabled = false; input.focus(); };
