@@ -115,6 +115,21 @@ def test_empty_pyproject_dependencies_are_authoritative(tmp_path):
     assert result.dependency_source == "pyproject.toml"
 
 
+def test_imported_optional_dependencies_preserve_constraints_and_skip_tests(tmp_path):
+    write(tmp_path / 'src' / 'demo' / '__main__.py', 'import PySide6\nimport pyvisa\nimport requests\n')
+    write(tmp_path / 'tests' / 'test_gui.py', 'import pytest\n')
+    write(tmp_path / 'pyproject.toml', '''[project]
+dependencies = ["requests==2.32.5"]
+[project.optional-dependencies]
+gui = ["PySide6>=6.5", "requests>=2"]
+visa = ["pyvisa>=1.14"]
+dev = ["pytest>=7.4", "ruff"]
+''')
+    result = analyze_project(tmp_path)
+    assert result.packages == ['requests==2.32.5', 'PySide6>=6.5', 'pyvisa>=1.14']
+    assert result.dependency_source == 'pyproject.toml'
+
+
 @pytest.mark.parametrize("metadata", ["broken [", "[project]\nname='demo'\n"])
 def test_unusable_pyproject_falls_back_to_requirements(tmp_path, metadata):
     write(tmp_path / "main.py", "import requests\n")

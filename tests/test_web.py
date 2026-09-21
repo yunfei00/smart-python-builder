@@ -15,13 +15,22 @@ def zipped(files):
 
 
 def test_upload_and_entry_selection(tmp_path):
-    with TestClient(create_app(tmp_path)) as client:
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
         assert client.get('/').status_code == 200
+        registered = client.post(
+            '/account/register',
+            data={'username': 'entry', 'email':'entry@example.com','password':'password123'},
+            follow_redirects=False,
+        )
+        assert registered.status_code == 303
+        session = app.state.accounts.session(client.cookies.get('builder_user'))
+        headers = {'X-CSRF-Token': session['csrf']}
         response=client.post('/api/uploads',files={'file':('demo.zip',zipped({'main.py':'print(1)','app.py':'print(2)'}))})
         assert response.status_code == 200
         job=response.json()
         assert job['entry'] is None and len(job['entries'])==2
-        assert client.post(f"/api/jobs/{job['id']}/build",data={'entry':'../main.py'}).status_code==400
+        assert client.post(f"/api/jobs/{job['id']}/build",data={'entry':'../main.py'},headers=headers).status_code==400
         assert client.get(f"/api/jobs/{job['id']}/download").status_code==409
 
 

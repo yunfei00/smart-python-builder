@@ -13,7 +13,7 @@ from builder.notifications import FeishuNotifier
 COOKIE = 'builder_admin'
 
 
-def register_admin(app, templates, settings, admin_token=None, ai_factory=None, notifier_factory=None):
+def register_admin(app, templates, settings, admin_token=None, ai_factory=None, notifier_factory=None, accounts=None):
     admin_token = admin_token or settings.effective()['admin_token']
     failures = {}
     login_lock = threading.Lock()
@@ -82,6 +82,80 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
     @app.get('/admin/settings')
     def settings_page(request: Request):
         return page(request, 'settings.html')
+
+    @app.get('/admin/users')
+    def users_page(request: Request):
+        return page(request, 'users.html')
+
+
+    @app.get('/api/admin/users', dependencies=[Depends(admin)])
+    def list_users():
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        return {'users': accounts.list_users()}
+
+    @app.post('/api/admin/users', dependencies=[Depends(admin)])
+    def create_user(payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.create_managed_user(
+                payload.get('username', ''),
+                payload.get('password', ''),
+                email=payload.get('email'),
+                plan=payload.get('plan', 'FREE'),
+                remaining=payload.get('remaining', 3),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/admin/users/{user_id}/password', dependencies=[Depends(admin)])
+    def reset_user_password(user_id: str, payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.reset_password(user_id, payload.get('password', ''))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/admin/users/{user_id}/plan', dependencies=[Depends(admin)])
+    def set_user_plan(user_id: str, payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.set_plan_by_id(user_id, payload.get('plan', ''))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/admin/users/{user_id}/quota', dependencies=[Depends(admin)])
+    def set_user_quota(user_id: str, payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.set_remaining_quota(user_id, payload.get('remaining'))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/admin/users/{user_id}/quota/reset', dependencies=[Depends(admin)])
+    def reset_user_quota(user_id: str):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        try:
+            return accounts.reset_quota(user_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post('/api/admin/users/{user_id}/disabled', dependencies=[Depends(admin)])
+    def set_user_disabled(user_id: str, payload: dict):
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        disabled = payload.get('disabled')
+        if type(disabled) is not bool:
+            raise HTTPException(400, 'disabled 必须为布尔值')
+        try:
+            return accounts.set_disabled(user_id, disabled)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.get('/api/admin/settings', dependencies=[Depends(admin)])
     def read_settings():

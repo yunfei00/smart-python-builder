@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Sequence
+import re
 
 from .dependencies import imports_from_project, split_imports
 from .models import ProjectAnalysis
@@ -53,12 +55,29 @@ def _requirements(path: Path) -> list[str]:
     return packages
 
 
-def _pyproject_dependencies(path: Path) -> list[str] | None:
+def _pyproject_dependencies(path: Path, imported_packages: Sequence[str] = ()) -> list[str] | None:
     try:
         import tomllib
         data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
-        deps = data.get("project", {}).get("dependencies")
-        return deps if isinstance(deps, list) and all(isinstance(dep, str) for dep in deps) else None
+        project = data.get("project", {})
+        deps = project.get("dependencies")
+        if not isinstance(deps, list) or not all(isinstance(dep, str) for dep in deps):
+            return None
+        def name(requirement):
+            match = re.match(r'[A-Za-z0-9][A-Za-z0-9_.-]*', requirement)
+            return re.sub(r'[-_.]+', '-', match[0]).lower() if match else ''
+        imported = {name(package) for package in imported_packages}
+        declared = {name(dep) for dep in deps}
+        optional = project.get('optional-dependencies', {})
+        if isinstance(optional, dict):
+            for requirements in optional.values():
+                if not isinstance(requirements, list):
+                    continue
+                for dep in requirements:
+                    if isinstance(dep, str) and name(dep) in imported and name(dep) not in declared:
+                        deps.append(dep)
+                        declared.add(name(dep))
+        return deps
     except (OSError, ValueError):
         return None
 
@@ -90,7 +109,12 @@ def analyze_project(source: Path | str) -> ProjectAnalysis:
 
     pyproject = root / "pyproject.toml"
     requirements = root / "requirements.txt"
-    declared = _pyproject_dependencies(pyproject) if pyproject.exists() else None
+    runtime_files = [path for path in files
+                     if not {'tests', 'test'} & set(path.relative_to(root).parts[:-1])
+                     and not path.name.startswith('test_') and not path.name.endswith('_test.py')
+                     and path.name != 'conftest.py']
+    runtime_imports = imports_from_project(runtime_files) & third_party
+    declared = _pyproject_dependencies(pyproject, resolve_packages(runtime_imports)) if pyproject.exists() else None
     if declared is not None:
         packages = declared
         dependency_source = "pyproject.toml"

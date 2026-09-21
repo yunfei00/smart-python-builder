@@ -43,6 +43,11 @@ class BuildEngine:
         self.min_free_bytes = 1024**3
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
+    def cancel(self) -> None:
+        cancel = getattr(self.backend, 'cancel', None)
+        if cancel:
+            cancel()
+
     def build(self, request: BuildRequest) -> BuildResult:
         source = request.source.resolve()
         if not source.exists():
@@ -84,7 +89,9 @@ class BuildEngine:
 
             plan = request.plan
             mode = plan.mode if plan else "onefile"
+            launch_entry, entry_args = self._prepare_entry(entry, project_dir, workspace)
             command = [str(workspace / ".venv" / "Scripts" / "pyinstaller.exe"), "--noconfirm", "--clean", f"--{mode}"]
+            command.extend(entry_args)
             if plan:
                 for value in plan.hidden_imports:
                     command.extend(["--hidden-import", value])
@@ -96,9 +103,8 @@ class BuildEngine:
             is_windowed = plan.app_type == "gui" if plan else request.windowed
             if is_windowed:
                 command.append("--windowed")
-            if request.app_name:
-                command.extend(["--name", request.app_name])
-            command.append(str(entry.relative_to(project_dir)))
+            command.extend(["--name", request.app_name or entry.stem])
+            command.append(str(launch_entry))
             self._run(command, project_dir, log_file)
 
             exe_name = request.app_name or entry.stem
@@ -114,6 +120,28 @@ class BuildEngine:
             return BuildResult(build_id, False, workspace, None, log_file, str(exc))
         finally:
             marker.write_text(json.dumps(dict(status='SUCCESS' if success else 'FAILED', build_id=build_id, finished_at=time.time())), encoding='utf-8')
+
+    @staticmethod
+    def _prepare_entry(entry: Path, project_dir: Path, workspace: Path) -> tuple[Path, list[str]]:
+        """Preserve python -m semantics for entries inside regular packages."""
+        package_dir = entry.parent
+        parts = [entry.stem]
+        while package_dir.is_relative_to(project_dir) and (package_dir / '__init__.py').is_file():
+            parts.insert(0, package_dir.name)
+            package_dir = package_dir.parent
+        if len(parts) == 1:
+            return entry, []
+        module = '.'.join(parts)
+        # runpy supplies __package__, __spec__, and the __main__ guard. Explicit
+        # hidden-import makes the dynamically executed module visible to analysis.
+        launcher = workspace / '_builder_entry.py'
+        launcher.write_text(
+            'import runpy\n'
+            "if __name__ == '__main__':\n"
+            f"    runpy.run_module({module!r}, run_name='__main__', alter_sys=True)\n",
+            encoding='utf-8',
+        )
+        return launcher, ['--paths', str(package_dir), '--hidden-import', module]
 
     def _copy_source(self, source: Path, requested_entry: Path | None, project_dir: Path) -> Path:
         if source.is_file():

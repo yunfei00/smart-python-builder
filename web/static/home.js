@@ -1,7 +1,7 @@
 let job, generation = 0;
 const $ = id => document.getElementById(id);
-const states = {READY:'等待项目', QUEUED:'已进入构建队列', BUILDING:'正在生成 Windows 应用', AI_DIAGNOSING:'构建遇到问题，AI 正在诊断', AI_REPAIRING:'AI 已找到方案，正在准备修复', REBUILDING:'修复完成，正在重新构建', SUCCESS:'应用已生成', FAILED:'构建未完成', NEEDS_MANUAL_REVIEW:'需要进一步检查', EXPIRED:'构建文件已过期'};
-const progress = {READY:0, QUEUED:18, BUILDING:58, AI_DIAGNOSING:66, AI_REPAIRING:74, REBUILDING:84, SUCCESS:100, FAILED:100, NEEDS_MANUAL_REVIEW:100, EXPIRED:100};
+const states = {READY:'等待项目', QUEUED:'已进入构建队列', BUILDING:'正在生成 Windows 应用', AI_DIAGNOSING:'构建遇到问题，AI 正在诊断', AI_REPAIRING:'AI 已找到方案，正在准备修复', REBUILDING:'修复完成，正在重新构建', SUCCESS:'应用已生成', FAILED:'构建未完成', NEEDS_MANUAL_REVIEW:'需要进一步检查', EXPIRED:'构建文件已过期', CANCELING:'正在取消构建', CANCELED:'构建已取消'};
+const progress = {READY:0, QUEUED:18, BUILDING:58, AI_DIAGNOSING:66, AI_REPAIRING:74, REBUILDING:84, SUCCESS:100, FAILED:100, NEEDS_MANUAL_REVIEW:100, EXPIRED:100, CANCELING:70, CANCELED:0};
 function clearError() {
   $('error').textContent = '';
 }
@@ -44,6 +44,14 @@ async function api(url, options = {}) {
 function renderStatus(value) {
   const ready = value.status === 'SUCCESS' && value.terminal === true && value.artifact_available === true;
   const failed = ['FAILED','NEEDS_MANUAL_REVIEW','EXPIRED'].includes(value.status);
+  const active = ['QUEUED','BUILDING','AI_DIAGNOSING','AI_REPAIRING','REBUILDING','CANCELING'].includes(value.status);
+  const cancel = $('cancel-build');
+  if (cancel) {
+    const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+    cancel.hidden = !active || !loggedIn;
+    cancel.disabled = value.status === 'CANCELING';
+    cancel.textContent = value.status === 'CANCELING' ? '正在取消…' : '取消当前构建';
+  }
   $('download').disabled = !ready;
   $('download').textContent = ready ? '下载 Windows 应用 ↓' : '下载应用（构建完成后可用）';
   $('download').onclick = ready ? () => { window.location.href = '/api/jobs/' + encodeURIComponent(value.id) + '/download'; } : null;
@@ -54,9 +62,31 @@ function renderStatus(value) {
   const bar = document.querySelector('.build-track span');
   if (bar) bar.style.width = (progress[value.status] ?? 12) + '%';
 }
+function renderCurrentProject(value) {
+  const card = $('current-project');
+  if (!card || !value) return;
+  const github = value.source_type === 'github';
+  const projectName = value.project_name || (github ? 'GitHub project' : 'Python project');
+  const source = github
+    ? 'GitHub · ' + (value.repository_url || '公开仓库') + (value.repository_ref ? ' · ' + value.repository_ref : ' · 默认分支')
+    : '本地上传 · ' + (value.upload_filename || projectName);
+  const entryCount = Array.isArray(value.entries) ? value.entries.length : 0;
+  const depCount = Array.isArray(value.dependencies) ? value.dependencies.length : 0;
+  $('current-project-icon').textContent = github ? 'GH' : 'PY';
+  $('current-project-name').textContent = projectName;
+  $('current-project-source').textContent = source;
+  $('current-project-entry').textContent = value.entry ? '入口：' + value.entry : '入口候选：' + entryCount + ' 个';
+  $('current-project-deps').textContent = '依赖：' + depCount + ' 项';
+  card.hidden = false;
+  if ($('builder-step-title')) $('builder-step-title').textContent = '当前 Python 项目';
+  if ($('builder-step-subtitle')) $('builder-step-subtitle').textContent = '项目已导入并完成分析，可以继续确认构建配置。';
+  if ($('import-options')) $('import-options').hidden = true;
+  if ($('import-note')) $('import-note').hidden = true;
+}
 function showProject(next, current) {
   if (current !== generation) return;
   clearError();
+  renderCurrentProject(next);
   job = next; $('ids').textContent = '项目分析完成 · 任务 ' + job.id; $('log').textContent = '等待构建开始。';
   $('project').hidden = false; $('progress').hidden = false; $('entry').replaceChildren();
   if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
@@ -64,11 +94,19 @@ function showProject(next, current) {
   $('dependencies').textContent = '✓ 依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
   $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
   $('plan').textContent = JSON.stringify(job.plan, null, 2); $('build').disabled = false;
+  const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+  $('build').textContent = loggedIn ? '生成 Windows 应用 →' : '登录后生成 Windows 应用 →';
+  if ($('build-auth-note')) $('build-auth-note').hidden = loggedIn;
   $('project').scrollIntoView({behavior:'smooth', block:'center'});
 }
 function beginImport() {
   const current = ++generation;
   clearError(); $('project').hidden = true; $('progress').hidden = true;
+  if ($('current-project')) $('current-project').hidden = true;
+  if ($('builder-step-title')) $('builder-step-title').textContent = '导入你的 Python 项目';
+  if ($('builder-step-subtitle')) $('builder-step-subtitle').textContent = '选择本地项目，或直接从公开 GitHub 仓库导入。';
+  if ($('import-options')) $('import-options').hidden = false;
+  if ($('import-note')) $('import-note').hidden = false;
   $('progress').classList.remove('is-success', 'is-failed');
   $('ids').textContent = '正在分析项目结构和依赖…';
   renderStatus({status:'READY'});
@@ -117,10 +155,20 @@ $('github-import').onsubmit = async event => {
   }
 };
 $('build').onclick = async () => {
-  const current = generation; $('build').disabled = true;
+  const current = generation;
   clearError();
+  if (!$('entry').value) {
+    showError('请先选择程序入口');
+    return;
+  }
+  const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+  if (!loggedIn) {
+    const next = '/?job=' + encodeURIComponent(job.id) + '#project';
+    location.href = '/account/login?next=' + encodeURIComponent(next);
+    return;
+  }
+  $('build').disabled = true;
   try {
-    if (!$('entry').value) throw Error('请先选择程序入口');
     const form = new FormData(); form.set('entry', $('entry').value); form.set('mode', $('mode').value);
     await api('/api/jobs/' + job.id + '/build', {method:'POST', body:form});
     if (current !== generation) return;
@@ -153,9 +201,44 @@ async function preview() {
     $('plan').textContent = JSON.stringify(plan, null, 2); $('type').textContent = '✓ 应用类型：' + (plan.app_type === 'gui' ? '图形界面应用' : '控制台应用');
   } catch (error) { showError(error.message); }
 }
+$('cancel-build')?.addEventListener('click', async () => {
+  if (!job?.id || !confirm('确定取消当前构建吗？正在执行的打包进程会被终止。')) return;
+  const button = $('cancel-build');
+  button.disabled = true;
+  button.textContent = '正在取消…';
+  try {
+    const result = await api('/api/jobs/' + encodeURIComponent(job.id) + '/cancel', {method:'POST'});
+    renderStatus({...result, terminal:false, artifact_available:false});
+    poll(job.id, generation);
+  } catch (error) {
+    showError(error.message);
+    button.disabled = false;
+    button.textContent = '取消当前构建';
+  }
+});
 $('entry').onchange = preview; $('mode').onchange = preview;
 $('upload-file')?.addEventListener('change', renderSelectedFile);
 renderSelectedFile();
 renderStatus({status:'READY'});
+async function resumeExisting(id) {
+  try {
+    let value = await api('/api/jobs/' + encodeURIComponent(id));
+    renderCurrentProject(value);
+    const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
+    if (value.status === 'READY' && !value.owner_id && loggedIn) {
+      value = await api('/api/jobs/' + encodeURIComponent(id) + '/claim', {method:'POST'});
+    }
+    if (value.status === 'READY') {
+      showProject(value, generation);
+      renderStatus(value);
+      return;
+    }
+    $('progress').hidden = false;
+    job = value;
+    poll(id, generation);
+  } catch (error) {
+    showError(error.message);
+  }
+}
 const existing = new URLSearchParams(location.search).get('job');
-if (existing) { $('progress').hidden = false; job = {id:existing}; poll(existing, generation); }
+if (existing) resumeExisting(existing);

@@ -29,10 +29,13 @@ def configured(tmp_path, monkeypatch):
 def test_home_ui(configured):
     app, client, _ = configured
     page = client.get('/').text
-    assert 'Smart Python Builder' in page and 'Python → Windows App' in page
+    assert 'Smart Python Builder' in page and 'Python → Windows' in page
     assert 'id="download" disabled' in page
+    assert 'id="current-project"' in page
     assert client.get('/static/home.js').status_code == 200
-    assert 'scrollIntoView' in client.get('/static/home.js').text
+    home_js = client.get('/static/home.js').text
+    assert 'scrollIntoView' in home_js
+    assert 'renderCurrentProject' in home_js
 
 
 @pytest.mark.parametrize('status,terminal,exists,expected', [
@@ -243,3 +246,107 @@ def test_invalid_settings_atomic(configured,payload):
     before = app.state.settings.saved()
     assert client.post('/api/admin/settings',headers=headers,json=payload).status_code == 400
     assert app.state.settings.saved() == before
+
+
+def test_admin_user_management(configured):
+    app, client, headers = configured
+    first = app.state.accounts.create_user('free', 'password123', email='free@example.com')
+    second = app.state.accounts.create_user('test', 'password123', email='test@example.com')
+
+    users_page = client.get('/admin/users')
+    assert users_page.status_code == 200
+    assert '用户管理' in users_page.text
+    assert '添加用户' in users_page.text
+    assert 'new-user-username' in users_page.text
+    assert '邮箱（选填）' in users_page.text
+    assert 'password-modal' in users_page.text
+
+    created = client.post(
+        '/api/admin/users',
+        headers=headers,
+        json={
+            'username': 'managed',
+            'email':'managed@example.com',
+            'password':'initial-password',
+            'plan':'FREE',
+            'remaining':12,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()['email'] == 'managed@example.com'
+    assert created.json()['quota_remaining'] == 12
+    managed_id = created.json()['id']
+    assert app.state.accounts.authenticate('managed@example.com', 'initial-password')['id'] == managed_id
+
+    listed = client.get('/api/admin/users').json()['users']
+    assert {row['email'] for row in listed} >= {'free@example.com', 'test@example.com', 'managed@example.com'}
+
+    reset_password = client.post(
+        f'/api/admin/users/{managed_id}/password',
+        headers=headers,
+        json={'password':'replacement-password'},
+    )
+    assert reset_password.status_code == 200
+    assert app.state.accounts.authenticate('managed@example.com', 'initial-password') is None
+    assert app.state.accounts.authenticate('managed@example.com', 'replacement-password')['id'] == managed_id
+
+    quota = client.post(
+        f"/api/admin/users/{first['id']}/quota",
+        headers=headers,
+        json={'remaining': 25},
+    )
+    assert quota.status_code == 200
+    assert quota.json()['quota_remaining'] == 25
+    assert quota.json()['quota_total'] == 25
+
+    changed = client.post(
+        f"/api/admin/users/{first['id']}/plan",
+        headers=headers,
+        json={'plan':'TEST'},
+    )
+    assert changed.status_code == 200
+    assert changed.json()['plan'] == 'TEST'
+    assert changed.json()['quota_unlimited'] is True
+    invalid_quota = client.post(
+        f"/api/admin/users/{first['id']}/quota",
+        headers=headers,
+        json={'remaining': 10},
+    )
+    assert invalid_quota.status_code == 400
+    assert 'TEST' in invalid_quota.json()['detail']
+
+    disabled = client.post(
+        f"/api/admin/users/{second['id']}/disabled",
+        headers=headers,
+        json={'disabled': True},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()['disabled'] is True
+    assert app.state.accounts.authenticate('test@example.com', 'password123') is None
+
+    enabled = client.post(
+        f"/api/admin/users/{second['id']}/disabled",
+        headers=headers,
+        json={'disabled': False},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()['disabled'] is False
+
+    app.state.accounts.consume_build(second['id'])
+    reset = client.post(f"/api/admin/users/{second['id']}/quota/reset", headers=headers)
+    assert reset.status_code == 200
+    assert reset.json()['quota_used'] == 0
+    assert reset.json()['quota_remaining'] == 3
+
+
+def test_set_admin_password_replaces_existing_password_and_sessions(tmp_path):
+    store = SettingsStore(tmp_path / 'settings.sqlite3')
+    store.set_admin_password('first-password')
+    token = store.new_session()
+    assert store.session(token)
+    assert store.authenticate('first-password')
+
+    store.set_admin_password('second-password')
+    assert not store.authenticate('first-password')
+    assert store.authenticate('second-password')
+    assert store.session(token) is None

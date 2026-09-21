@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>账号设置 · Smart Python Builder</title>
+  <link rel="stylesheet" href="/static/app.css?v=1.2.1-account-settings">
+</head>
+<body>
+<main class="shell account-shell">
+  <header class="header">
+    <a class="brand" href="/"><span class="brand-mark">SP</span><span><strong>Smart Python Builder</strong><small>Python → Windows</small></span></a>
+    <nav><a href="/dashboard">我的工作台</a><a href="/">新建构建</a></nav>
+  </header>
+
+  <section class="account-settings-wrap">
+    <div class="settings-heading">
+      <span class="eyebrow">ACCOUNT SETTINGS</span>
+      <h1>账号设置</h1>
+      <p><strong>{{ user.username }}</strong><br>{{ user.email or '未绑定邮箱' }}</p>
+    </div>
+
+    <section class="settings-card account-security-card">
+      <div class="settings-card-head">
+        <h3>修改密码</h3>
+        <p>修改后会使旧登录会话失效，并立即使用新密码保护账号。</p>
+      </div>
+      {% if changed %}<p class="account-success" role="status">密码修改成功。</p>{% endif %}
+      {% if error %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
+      <form method="post" action="/account/password" class="settings-form password-form">
+        <input type="hidden" name="csrf" value="{{ user.csrf }}">
+        <label for="current_password">当前密码</label>
+        <input id="current_password" name="current_password" type="password" autocomplete="current-password" required maxlength="128">
+
+        <label for="new_password">新密码</label>
+        <input id="new_password" name="new_password" type="password" autocomplete="new-password" required minlength="8" maxlength="128">
+        <small>至少 8 个字符。</small>
+
+        <label for="confirm_password">确认新密码</label>
+        <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required minlength="8" maxlength="128">
+
+        <div class="actions"><button>保存新密码</button></div>
+      </form>
+    </section>
+  </section>
+</main>
+</body>
+</html>

@@ -48,6 +48,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             return builder_factory(root / 'workspace', settings_store=settings)
         return builder_factory(root / 'workspace')
     jobs = {}
+    futures = {}
+    active_builders = {}
     lock = threading.RLock()
     pool = ThreadPoolExecutor(max_workers=1)
     templates = Jinja2Templates(directory=str(Path(__file__).parent / 'templates'))
@@ -64,7 +66,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             job = json.loads(saved.read_text(encoding='utf-8'))
             if saved.stem != job['id'] or len(job['id']) != 32:
                 continue
-            if (job['status'] != 'READY' and not job.get('terminal', True)) or job['status'] not in {'READY','SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED'}:
+            if job.get('status') == 'CANCELING':
+                job.update(status='CANCELED', error='Build cancelled before service restart completed', terminal=True)
+                persist(job)
+            elif (job['status'] != 'READY' and not job.get('terminal', True)) or job['status'] not in {'READY','SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED','CANCELED'}:
                 job.update(status='NEEDS_MANUAL_REVIEW', error='Service restarted while task was active', terminal=True)
                 build_id = job.get('build_id', '')
                 if re.fullmatch('[a-f0-9]{32}', build_id):
@@ -125,7 +130,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     app.state.experience_store = store
     app.state.settings = settings
     app.state.accounts = accounts
-    admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory)
+    admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory, accounts=accounts)
 
     @app.get('/api/admin/experiences', dependencies=[Depends(admin)])
     def candidates():
@@ -143,6 +148,15 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     def account_session(request: Request):
         return accounts.session(request.cookies.get(USER_COOKIE, ''))
 
+    def safe_next_url(value, default='/dashboard'):
+        value = (value or '').strip()
+        if not value or len(value) > 2048 or '\\' in value or '\r' in value or '\n' in value:
+            return default
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc or not parsed.path.startswith('/') or value.startswith('//'):
+            return default
+        return value
+
     def get_job(job_id):
         with lock:
             if job_id not in jobs:
@@ -157,6 +171,42 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             if not user or user['id'] != owner_id:
                 raise HTTPException(404, '任务不存在')
         return job
+
+    def get_owned_job(job_id, request: Request):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录')
+        job = get_job(job_id)
+        if job.get('owner_id') != user['id']:
+            raise HTTPException(404, '任务不存在')
+        return job, user
+
+    def remove_job_files(job):
+        job_id = job['id']
+        upload_dir = root / 'uploads' / job_id
+        if (
+            re.fullmatch('[a-f0-9]{32}', job_id)
+            and upload_dir.exists()
+            and not upload_dir.is_symlink()
+            and upload_dir.resolve().parent == (root / 'uploads').resolve()
+        ):
+            shutil.rmtree(upload_dir.resolve(), ignore_errors=True)
+
+        build_ids = {job.get('build_id')}
+        for attempt in job.get('attempts', []):
+            if isinstance(attempt, dict):
+                build_ids.add(attempt.get('build_id'))
+        workspace_root = (root / 'workspace').resolve()
+        for build_id in build_ids:
+            if not isinstance(build_id, str) or not re.fullmatch('[a-f0-9]{32}', build_id):
+                continue
+            target = workspace_root / build_id
+            if target.exists() and not target.is_symlink() and target.resolve().parent == workspace_root:
+                shutil.rmtree(target.resolve(), ignore_errors=True)
+
+        metadata = root / (job_id + '.json')
+        if metadata.exists() and metadata.resolve().parent == root:
+            metadata.unlink(missing_ok=True)
 
     def import_slots(user):
         """How many additional READY jobs this account may create.
@@ -183,22 +233,40 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     def run_job(job_id, entry, mode):
         job = get_job(job_id)
-        job['status'] = 'BUILDING'
-        persist(job)
+        with lock:
+            if job.get('cancel_requested'):
+                job.update(status='CANCELED', error='Build cancelled by user', terminal=True)
+                owner_id = job.get('owner_id')
+                if owner_id:
+                    accounts.refund_build(owner_id)
+                futures.pop(job_id, None)
+                persist(job)
+                return
+            job['status'] = 'BUILDING'
+            persist(job)
         try:
             builder = make_builder()
+            with lock:
+                active_builders[job_id] = builder
+                if job.get('cancel_requested'):
+                    builder.cancel()
             def created(build_id, log_file):
                 job.update(build_id=build_id, log=str(log_file))
                 persist(job)
             def state_changed(state):
-                job.update(status=state)
+                if job.get('cancel_requested') and state != 'CANCELED':
+                    job.update(status='CANCELING')
+                else:
+                    job.update(status=state)
                 persist(job)
             builder.engine.on_created = created
             builder.on_state = state_changed
             builder.web_job_id = job_id
             result = builder.build(Path(job['source']), entry_point=entry, mode=mode)
-            job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file))
-            if result.build.success:
+            job.update(build_id=result.build.build_id, plan=result.plan.to_dict(), log=str(result.build.log_file), attempts=result.attempts)
+            if result.status == 'CANCELED' or job.get('cancel_requested'):
+                job.update(status='CANCELED', error='Build cancelled by user')
+            elif result.build.success:
                 artifact = result.build.artifact
                 if artifact.is_dir():
                     artifact = Path(shutil.make_archive(str(artifact), 'zip', artifact.parent, artifact.name))
@@ -207,7 +275,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 job.update(status=result.status, error=result.build.error, attempts=result.attempts)
         except Exception as exc:
             error = str(exc) or type(exc).__name__
-            job.update(status='FAILED', error=error)
+            if job.get('cancel_requested'):
+                job.update(status='CANCELED', error='Build cancelled by user')
+            else:
+                job.update(status='FAILED', error=error)
             # Failures before BuildEngine creates a workspace/log (for example
             # plan validation) still need a visible diagnostic in the Web UI.
             if not job.get('log'):
@@ -216,8 +287,11 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 diagnostic.write_text('BUILD FAILED BEFORE ENGINE START\n' + error + '\n', encoding='utf-8')
                 job['log'] = str(diagnostic)
         finally:
-            job['terminal'] = True
-            persist(job)
+            with lock:
+                active_builders.pop(job_id, None)
+                futures.pop(job_id, None)
+                job['terminal'] = True
+                persist(job)
 
     @app.get('/', response_class=HTMLResponse)
     def home(request: Request):
@@ -233,30 +307,39 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             },
         )
 
-    def account_page(request, mode, error='', email=''):
+    def account_page(request, mode, error='', email='', next_url='/dashboard', *, username='', login=''):
+        next_url = safe_next_url(next_url)
         user = account_session(request)
         if user:
-            return RedirectResponse('/dashboard', status_code=303)
+            return RedirectResponse(next_url, status_code=303)
         return templates.TemplateResponse(
             request=request, name='account_auth.html',
-            context={'mode': mode, 'error': error, 'email': email},
+            context={'mode': mode, 'error': error, 'email': email, 'next_url': next_url,
+                     'username': username, 'login': login},
             headers={'Cache-Control': 'no-store'},
         )
 
     @app.get('/account/register', response_class=HTMLResponse)
     def register_page(request: Request):
-        return account_page(request, 'register')
+        return account_page(request, 'register', next_url=request.query_params.get('next', '/dashboard'))
 
     @app.post('/account/register')
-    def register_account(request: Request, email: str = Form(...), password: str = Form(...)):
+    def register_account(
+        request: Request,
+        username: str = Form(''),
+        email: str = Form(''),
+        password: str = Form(...),
+        next_url: str = Form('/dashboard', alias='next'),
+    ):
         if request.headers.get('sec-fetch-site') == 'cross-site':
             raise HTTPException(403, 'Cross-origin writes are disabled')
+        next_url = safe_next_url(next_url)
         try:
-            user = accounts.create_user(email, password)
+            user = accounts.create_user(username, password, email=email)
         except ValueError as exc:
-            return account_page(request, 'register', str(exc), email.strip())
+            return account_page(request, 'register', str(exc), email[:254], next_url, username=username[:32])
         token, _ = accounts.new_session(user['id'])
-        response = RedirectResponse('/dashboard', status_code=303)
+        response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
             USER_COOKIE, token, httponly=True, samesite='lax',
             secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
@@ -266,18 +349,26 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.get('/account/login', response_class=HTMLResponse)
     def account_login_page(request: Request):
-        return account_page(request, 'login')
+        return account_page(request, 'login', next_url=request.query_params.get('next', '/dashboard'))
 
     @app.post('/account/login')
-    def account_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    def account_login(
+        request: Request,
+        login: str | None = Form(None),
+        email: str = Form(''),
+        password: str = Form(...),
+        next_url: str = Form('/dashboard', alias='next'),
+    ):
         if request.headers.get('sec-fetch-site') == 'cross-site':
             raise HTTPException(403, 'Cross-origin writes are disabled')
-        user = accounts.authenticate(email, password)
+        next_url = safe_next_url(next_url)
+        identifier = login if login is not None else email
+        user = accounts.authenticate(identifier, password)
         if not user:
-            return account_page(request, 'login', '邮箱或密码不正确', email.strip())
+            return account_page(request, 'login', '用户名、邮箱或密码不正确', next_url=next_url, login=identifier[:254])
         accounts.logout(request.cookies.get(USER_COOKIE, ''))
         token, _ = accounts.new_session(user['id'])
-        response = RedirectResponse('/dashboard', status_code=303)
+        response = RedirectResponse(next_url, status_code=303)
         response.set_cookie(
             USER_COOKIE, token, httponly=True, samesite='lax',
             secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
@@ -293,6 +384,58 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         accounts.logout(request.cookies.get(USER_COOKIE, ''))
         response = RedirectResponse('/', status_code=303)
         response.delete_cookie(USER_COOKIE, path='/')
+        return response
+
+    @app.get('/account/settings', response_class=HTMLResponse)
+    def account_settings(request: Request):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login?next=%2Faccount%2Fsettings', status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name='account_settings.html',
+            context={'user': user, 'changed': request.query_params.get('changed') == '1', 'error': ''},
+            headers={'Cache-Control': 'no-store'},
+        )
+
+    @app.post('/account/password')
+    def change_account_password(
+        request: Request,
+        current_password: str = Form(...),
+        new_password: str = Form(...),
+        confirm_password: str = Form(...),
+        csrf: str = Form(...),
+    ):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login?next=%2Faccount%2Fsettings', status_code=303)
+        if not secrets.compare_digest(csrf, user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        if new_password != confirm_password:
+            return templates.TemplateResponse(
+                request=request,
+                name='account_settings.html',
+                context={'user': user, 'changed': False, 'error': '两次输入的新密码不一致'},
+                status_code=400,
+                headers={'Cache-Control': 'no-store'},
+            )
+        try:
+            accounts.change_password(user['id'], current_password, new_password)
+        except ValueError as exc:
+            return templates.TemplateResponse(
+                request=request,
+                name='account_settings.html',
+                context={'user': user, 'changed': False, 'error': str(exc)},
+                status_code=400,
+                headers={'Cache-Control': 'no-store'},
+            )
+        token, _ = accounts.new_session(user['id'])
+        response = RedirectResponse('/account/settings?changed=1', status_code=303)
+        response.set_cookie(
+            USER_COOKIE, token, httponly=True, samesite='lax',
+            secure=settings.effective()['cookie_secure'], max_age=SESSION_SECONDS, path='/'
+        )
+        response.headers['Cache-Control'] = 'no-store'
         return response
 
     @app.get('/dashboard', response_class=HTMLResponse)
@@ -352,7 +495,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                    entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
                    source_type='upload', owner_id=user['id'] if user else None,
-                   project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project')
+                   project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project',
+                   upload_filename=(file.filename or 'Python project')[:255])
         try:
             with lock:
                 ensure_import_slot(user)
@@ -413,6 +557,9 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @app.post('/api/jobs/{job_id}/build')
     def start(request: Request, job_id: str, entry: str = Form(...), mode: str = Form('onefile')):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录或注册，再开始 Windows 构建')
         job = get_job_for_request(job_id, request)
         with lock:
             if job['status'] != 'READY':
@@ -421,22 +568,84 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 raise HTTPException(400, '请选择有效入口和输出格式')
             if sum(not item.get('terminal') and item['status'] != 'READY' for item in jobs.values()) >= 8:
                 raise HTTPException(429, '构建队列已满，请稍后重试')
-            user = account_session(request)
-            if user:
-                if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
-                    raise HTTPException(403, '会话校验失败，请刷新页面')
-                if job.get('owner_id') not in (None, user['id']):
-                    raise HTTPException(404, '任务不存在')
-                if not job.get('owner_id'):
-                    job['owner_id'] = user['id']
-                try:
-                    accounts.consume_build(user['id'])
-                except ValueError as exc:
-                    raise HTTPException(402, str(exc)) from exc
-            job['status'] = 'QUEUED'
+            if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+                raise HTTPException(403, '会话校验失败，请刷新页面')
+            if job.get('owner_id') not in (None, user['id']):
+                raise HTTPException(404, '任务不存在')
+            if not job.get('owner_id'):
+                ensure_import_slot(user)
+                job['owner_id'] = user['id']
+            try:
+                accounts.consume_build(user['id'])
+            except ValueError as exc:
+                raise HTTPException(402, str(exc)) from exc
+            job.update(status='QUEUED', terminal=False, cancel_requested=False)
             persist(job)
-            pool.submit(run_job, job_id, entry, mode)
+            future = pool.submit(run_job, job_id, entry, mode)
+            futures[job_id] = future
         return {'id': job_id, 'status': 'QUEUED'}
+
+
+    @app.post('/api/jobs/{job_id}/claim')
+    def claim_job(request: Request, job_id: str):
+        user = account_session(request)
+        if not user:
+            raise HTTPException(401, '请先登录')
+        if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        with lock:
+            job = get_job(job_id)
+            if job.get('owner_id') and job.get('owner_id') != user['id']:
+                raise HTTPException(404, '任务不存在')
+            if job.get('status') != 'READY':
+                if job.get('owner_id') == user['id']:
+                    return job
+                raise HTTPException(409, '只有待构建项目可以关联到账号')
+            if not job.get('owner_id'):
+                ensure_import_slot(user)
+                job['owner_id'] = user['id']
+                persist(job)
+            return job
+
+    @app.post('/api/jobs/{job_id}/cancel')
+    def cancel_job(request: Request, job_id: str):
+        job, user = get_owned_job(job_id, request)
+        if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        with lock:
+            status = job.get('status')
+            if status == 'READY':
+                raise HTTPException(409, '项目尚未开始构建，可直接删除项目')
+            if job.get('terminal') or status in {'SUCCESS','FAILED','NEEDS_MANUAL_REVIEW','EXPIRED','CANCELED'}:
+                raise HTTPException(409, '当前任务已经结束，无法取消')
+            job['cancel_requested'] = True
+            future = futures.get(job_id)
+            if status == 'QUEUED' and future is not None and future.cancel():
+                futures.pop(job_id, None)
+                job.update(status='CANCELED', error='Build cancelled before execution', terminal=True)
+                accounts.refund_build(user['id'])
+                persist(job)
+                return {'id': job_id, 'status': 'CANCELED', 'quota_refunded': True}
+            job['status'] = 'CANCELING'
+            persist(job)
+            builder = active_builders.get(job_id)
+            if builder is not None:
+                builder.cancel()
+        return {'id': job_id, 'status': 'CANCELING', 'quota_refunded': False}
+
+    @app.delete('/api/jobs/{job_id}')
+    def delete_job(request: Request, job_id: str):
+        job, user = get_owned_job(job_id, request)
+        if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        with lock:
+            if not job.get('terminal') and job.get('status') != 'READY':
+                raise HTTPException(409, '任务正在构建，请先取消并等待任务结束')
+            futures.pop(job_id, None)
+            active_builders.pop(job_id, None)
+            jobs.pop(job_id, None)
+            remove_job_files(job)
+        return {'id': job_id, 'deleted': True}
 
     @app.get('/api/jobs/{job_id}')
     def status(request: Request, job_id: str):

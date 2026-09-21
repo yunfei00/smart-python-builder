@@ -62,6 +62,9 @@ Smart Python Builder 将 Python 文件或项目打包成可运行的 Windows 应
 `name @ git+https://github.com/owner/repo.git[@ref]` 公共 GitHub VCS 依赖。requirements.txt
 仍只支持普通 PyPI 声明，不支持递归 `-r`、自定义索引、VCS 或本地路径依赖。动态导入不能完全依靠 AST 识别。
 
+源码已导入、且在 `[project.optional-dependencies]` 中声明的依赖也会加入构建，保留版本约束；
+测试文件的导入不触发可选依赖安装。包内入口（如 `src/port_bridge/__main__.py`）按模块运行，保留相对导入上下文。
+
 ## 管理员初始化与登录
 
 首次启动前，在同一个 PowerShell 中设置自己的管理员密码：
