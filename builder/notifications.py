@@ -51,7 +51,9 @@ def format_message(event):
             lines.append(f'{label}：{event[key]}')
     if event.get('dependencies'):
         lines.append('依赖：' + ', '.join(event['dependencies']))
-    for key, label in [('details_url', '查看任务'), ('approval_url', '管理员审批')]:
+    link_labels = [('details_url', '查看反馈' if kind == 'User Feedback' else '查看任务'),
+                   ('approval_url', '管理员审批')]
+    for key, label in link_labels:
         if event.get(key):
             lines.extend(['', label + '：', event[key]])
     return '\n'.join(lines)
