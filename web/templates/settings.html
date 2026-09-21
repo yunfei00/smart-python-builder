@@ -1,9 +1,13 @@
 {% extends 'admin_base.html' %}
-{% block scripts %}<script src="/static/settings.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/settings.js?v=1.2.1-family-mode" defer></script>{% endblock %}
 {% block content %}
 <div class="settings-page">
 <div class="settings-heading"><span class="eyebrow">SYSTEM SETTINGS</span><h2>系统设置</h2><p>管理 Builder、AI 服务与通知配置。</p></div>
 <p id="overrides" class="notice" hidden></p>
+<section class="settings-card"><div class="settings-card-head"><h3>账号与额度</h3><p>家庭免费使用为默认模式，同时保留未来商业模式入口。</p></div><form id="account-policy-settings" class="field settings-form">
+<label for="service_mode">运行模式</label><select id="service_mode" name="service_mode"><option value="family_free">家庭免费模式</option><option value="commercial">商业模式（预留）</option></select><small>家庭免费模式：新注册用户默认获得下方配置的免费额度；商业模式目前仅保留基础 FREE 3 次规则，不包含支付功能。</small>
+<label for="family_free_quota">家庭免费默认额度</label><input id="family_free_quota" name="family_free_quota" type="number" min="1" max="1000000" required><small>默认 10000 次。只影响新注册用户、FREE 套餐重置及 TEST→FREE 切换；不会静默改动已有用户。</small>
+<div class="actions"><button>保存账号模式</button><button type="button" id="top-up-free-users" class="secondary">保存并补足所有 FREE 用户</button></div><small>“补足”会把所有 FREE 用户的剩余额度设置为当前家庭免费默认额度，不影响已使用次数；仅家庭免费模式可执行。</small><p class="message" role="status"></p></form></section>
 <section class="settings-card"><div class="settings-card-head"><h3>Builder 服务</h3><p>访问地址、主机与文件保留策略。</p></div><form id="builder-settings" class="field settings-form">
 <label for="base_url">Builder 访问地址</label><input id="base_url" name="base_url" type="url" required placeholder="http://192.168.1.105:8000"><small>用于飞书通知中的任务详情、管理员审批等链接。请填写其他设备能够访问 Smart Python Builder 的地址。示例：http://192.168.1.105:8000 或 https://builder.example.com。保存后用于后续通知，无需重启；Listening Host 与 Allowed Hosts 不会随之修改。</small><p id="base-url-warning" role="status"></p>
 <label for="allowed_hosts">Allowed Hosts · 访问地址</label><input id="allowed_hosts" name="allowed_hosts" required><small>允许访问 Builder 的主机地址，多个地址用逗号分隔。例如 localhost,127.0.0.1,192.168.1.100。局域网测试可使用 *；这不是客户端访问权限控制。</small>
