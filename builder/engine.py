@@ -30,6 +30,7 @@ class BuildResult:
     artifact: Path | None
     log_file: Path
     error: str | None = None
+    artifacts: list[Path] = field(default_factory=list)
 
 
 class BuildEngine:
@@ -120,6 +121,66 @@ class BuildEngine:
             return BuildResult(build_id, False, workspace, None, log_file, str(exc))
         finally:
             marker.write_text(json.dumps(dict(status='SUCCESS' if success else 'FAILED', build_id=build_id, finished_at=time.time())), encoding='utf-8')
+
+
+    def build_many(self, source: Path | str, entries: list[Path], plans: list[BuildPlan]) -> BuildResult:
+        """Build several entries using one copied project and one shared environment."""
+        source = Path(source).resolve()
+        if not source.is_dir() or not entries or len(entries) != len(plans):
+            raise ValueError("Multi-app builds require a project folder and matching entries/plans")
+        if shutil.which("uv") is None:
+            raise RuntimeError("uv was not found in PATH")
+        build_id = uuid.uuid4().hex
+        workspace = self.workspace_root / build_id
+        project_dir = workspace / "project"
+        workspace.mkdir(parents=True)
+        log_file = workspace / "build.log"
+        log_file.touch()
+        self._deadline = time.monotonic() + self.timeout
+        marker = workspace / "task.json"
+        marker.write_text(json.dumps(dict(status="BUILDING", build_id=build_id)), encoding="utf-8")
+        success = False
+        try:
+            if self.on_created:
+                self.on_created(build_id, log_file)
+            first = self._copy_source(source, entries[0], project_dir)
+            copied_entries = [first] + [project_dir / entry.resolve().relative_to(source) for entry in entries[1:]]
+            for plan in plans:
+                plan.validate(project_dir)
+            self._run(["uv", "init", "--bare", "--no-workspace"], workspace, log_file)
+            packages = list(dict.fromkeys(dep for plan in plans for dep in plan.dependencies))
+            if packages:
+                self._run(["uv", "add", *packages], workspace, log_file)
+            self._run(["uv", "add", "--dev", "pyinstaller"], workspace, log_file)
+            artifacts = []
+            for entry, plan in zip(copied_entries, plans):
+                launch_entry, entry_args = self._prepare_entry(entry, project_dir, workspace)
+                command = [str(workspace / ".venv" / "Scripts" / "pyinstaller.exe"), "--noconfirm", "--clean", f"--{plan.mode}", *entry_args]
+                for value in plan.hidden_imports:
+                    command.extend(["--hidden-import", value])
+                for value in plan.collect_all:
+                    command.extend(["--collect-all", value])
+                for source_path, destination in plan.data_files:
+                    command.extend(["--add-data", f"{source_path};{destination}"])
+                command.extend(plan.pyinstaller_args)
+                if plan.app_type == "gui":
+                    command.append("--windowed")
+                exe_name = entry.stem
+                command.extend(["--name", exe_name, str(launch_entry)])
+                self._run(command, project_dir, log_file)
+                artifact = project_dir / "dist" / (exe_name if plan.mode == "onedir" else f"{exe_name}.exe")
+                executable = artifact / f"{exe_name}.exe" if plan.mode == "onedir" else artifact
+                if not executable.is_file() or executable.stat().st_size == 0:
+                    raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
+                artifacts.append(artifact)
+            success = True
+            return BuildResult(build_id, True, workspace, artifacts[0], log_file, artifacts=artifacts)
+        except Exception as exc:
+            with log_file.open("a", encoding="utf-8") as log:
+                log.write("\nMULTI BUILD FAILED: " + str(exc) + "\n")
+            return BuildResult(build_id, False, workspace, None, log_file, str(exc))
+        finally:
+            marker.write_text(json.dumps(dict(status="SUCCESS" if success else "FAILED", build_id=build_id, finished_at=time.time())), encoding="utf-8")
 
     @staticmethod
     def _prepare_entry(entry: Path, project_dir: Path, workspace: Path) -> tuple[Path, list[str]]:
