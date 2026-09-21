@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from typing import Protocol
 from .settings import environment_settings, notification_secrets
@@ -85,6 +86,13 @@ class NotificationService:
             self.failures.append(type(exc).__name__)
 
     @classmethod
-    def configured(cls, settings=None):
+    def configured(cls, settings=None, *, allow_external_during_tests=False):
         settings = settings if settings is not None else environment_settings()[0]
+        # pytest sets PYTEST_CURRENT_TEST while each test/fixture executes.
+        # Never let ordinary test runs reach a real Feishu webhook, even when
+        # local deployment settings or environment variables enable it.
+        # Notification contract tests can opt in explicitly and should mock
+        # the network or provide a fake notifier.
+        if os.environ.get('PYTEST_CURRENT_TEST') and not allow_external_during_tests:
+            return cls()
         return cls(FeishuNotifier(settings['feishu_webhook']), notification_secrets(settings)) if settings['feishu_enabled'] and settings['feishu_webhook'] else cls()
