@@ -196,7 +196,7 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
         except (ValueError, TypeError):
             raise HTTPException(400, '配置无效：请检查 Hosts、天数及服务地址；Builder 地址须为 HTTP(S)，不能含查询、片段、凭证或 0.0.0.0。') from None
         restart = any(key in payload and previous[key] != result[key] for key in ('allowed_hosts', 'retention_days'))
-        return {'settings': result, 'message': '保存成功，重启 Smart Python Builder 后生效。Builder 访问地址立即用于后续通知（环境变量覆盖优先）。' if restart else '保存成功，新构建将使用当前设置；Builder 访问地址立即用于后续通知。'}
+        return {'settings': result, 'message': '保存成功，重启 Smart Python Builder 后生效。Builder 访问地址立即用于后续通知（环境变量覆盖优先）。' if restart else '保存成功，后续请求将使用当前设置；Builder 访问地址立即用于后续通知。'}
 
     @app.post('/api/admin/settings/test-ai', dependencies=[Depends(admin)])
     def test_ai(payload: dict):
