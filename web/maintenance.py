@@ -80,11 +80,14 @@ def job_paths(root: Path | str, job: dict) -> list[Path]:
 
     unique: list[Path] = []
     seen = set()
-    for path in paths:
+    for path in sorted(paths, key=lambda item: len(item.parts)):
         marker = str(path)
-        if marker not in seen:
-            seen.add(marker)
-            unique.append(path)
+        if marker in seen:
+            continue
+        if any(path != parent and path.is_relative_to(parent) for parent in unique):
+            continue
+        seen.add(marker)
+        unique.append(path)
     return unique
 
 
