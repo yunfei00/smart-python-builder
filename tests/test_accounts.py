@@ -53,7 +53,7 @@ def test_customer_register_dashboard_and_owned_upload(tmp_path):
 
         dashboard = client.get("/dashboard")
         assert dashboard.status_code == 200
-        assert "3 次免费构建" in dashboard.text
+        assert "10000 次免费构建" in dashboard.text
 
         upload = client.post(
             "/api/uploads",
@@ -128,6 +128,7 @@ def test_test_plan_dashboard_shows_unlimited_quota(tmp_path):
 
 def test_free_account_cannot_import_after_quota_is_exhausted(tmp_path):
     app = create_app(tmp_path)
+    app.state.settings.save({'service_mode':'commercial'})
     with TestClient(app) as client:
         client.post(
             "/account/register",
@@ -153,6 +154,7 @@ def test_free_account_cannot_import_after_quota_is_exhausted(tmp_path):
 
 def test_ready_jobs_reserve_remaining_free_quota(tmp_path):
     app = create_app(tmp_path)
+    app.state.settings.save({'service_mode':'commercial'})
     with TestClient(app) as client:
         client.post(
             "/account/register",
@@ -230,7 +232,7 @@ def test_user_can_delete_ready_project_and_release_reserved_slot(tmp_path):
 
         # Deleting READY must release its reserved import slot without consuming quota.
         account = app.state.accounts.get_user(user['id'])
-        assert account['quota_remaining'] == 3
+        assert account['quota_remaining'] == 10000
         replacement = client.post(
             '/api/uploads',
             files={'file': ('replacement.py', io.BytesIO(b"print('ok')"), 'text/x-python')},
@@ -341,7 +343,7 @@ def test_user_can_cancel_running_build_then_delete_it(tmp_path):
         assert app.state.jobs[job_id]['status'] == 'CANCELED'
         assert app.state.jobs[job_id]['terminal'] is True
         # A running build has already consumed resources, so its FREE quota is not refunded.
-        assert app.state.accounts.get_user(user['id'])['quota_remaining'] == 2
+        assert app.state.accounts.get_user(user['id'])['quota_remaining'] == 9999
 
         deleted = client.delete(f'/api/jobs/{job_id}', headers=headers)
         assert deleted.status_code == 200
@@ -464,6 +466,7 @@ def test_customer_can_change_password_and_keep_fresh_session(tmp_path):
 
 def test_claiming_guest_project_respects_reserved_free_quota(tmp_path):
     app = create_app(tmp_path)
+    app.state.settings.save({'service_mode':'commercial'})
     with TestClient(app) as client:
         user, headers = _registered_client(app, client, 'reserved-claim@example.com')
         source = tmp_path / 'guest.py'
