@@ -179,7 +179,7 @@ if __name__ == "__main__":
     main()
 """)
     result = analyze_project(tmp_path)
-    entries = [str(path.relative_to(tmp_path)) for path in result.entry_candidates]
+    entries = [path.relative_to(tmp_path).as_posix() for path in result.entry_candidates]
     assert entries == ["scripts/run_gui.py", "tools/capture_cli.py"]
     assert result.entry_point is None
     assert result.entry_is_ambiguous
