@@ -148,7 +148,7 @@ def test_registration_login_and_account_pages(tmp_path, email):
         assert 'SameSite=lax' in response.headers['set-cookie']
         token = client.cookies.get('builder_user')
         user = app.state.accounts.session(token)
-        assert user['quota_remaining'] == 3
+        assert user['quota_remaining'] == 10000
         for url in ['/dashboard', '/account/settings']:
             page = client.get(url)
             assert '云飞01' in page.text
@@ -206,7 +206,7 @@ def test_username_account_admin_operations_and_security(tmp_path, email):
         assert app.state.accounts.authenticate('managed', 'password123') is None
         assert app.state.accounts.authenticate('managed', 'replacement-password')['id'] == user['id']
         assert client.post(url + '/plan', json={'plan': 'TEST'}, headers=headers).json()['quota_unlimited']
-        assert client.post(url + '/plan', json={'plan': 'FREE'}, headers=headers).json()['quota_remaining'] == 3
+        assert client.post(url + '/plan', json={'plan': 'FREE'}, headers=headers).json()['quota_remaining'] == 10000
         assert client.post(url + '/quota', json={'remaining': 25}, headers=headers).json()['quota_remaining'] == 25
         token, _ = app.state.accounts.new_session(user['id'])
         client.post(url + '/disabled', json={'disabled': True}, headers=headers)
