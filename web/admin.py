@@ -88,11 +88,21 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
         return page(request, 'users.html')
 
 
+    def default_free_quota():
+        values = settings.effective()
+        return values['family_free_quota'] if values['service_mode'] == 'family_free' else 3
+
     @app.get('/api/admin/users', dependencies=[Depends(admin)])
     def list_users():
         if accounts is None:
             raise HTTPException(503, '用户管理尚未启用')
-        return {'users': accounts.list_users()}
+        values = settings.effective()
+        return {
+            'users': accounts.list_users(),
+            'service_mode': values['service_mode'],
+            'default_free_quota': default_free_quota(),
+            'family_free_quota': values['family_free_quota'],
+        }
 
     @app.post('/api/admin/users', dependencies=[Depends(admin)])
     def create_user(payload: dict):
@@ -104,7 +114,7 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
                 payload.get('password', ''),
                 email=payload.get('email'),
                 plan=payload.get('plan', 'FREE'),
-                remaining=payload.get('remaining', 3),
+                remaining=payload.get('remaining', default_free_quota()),
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -123,7 +133,11 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
         if accounts is None:
             raise HTTPException(503, '用户管理尚未启用')
         try:
-            return accounts.set_plan_by_id(user_id, payload.get('plan', ''))
+            return accounts.set_plan_by_id(
+                user_id,
+                payload.get('plan', ''),
+                default_free_quota=default_free_quota(),
+            )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
@@ -141,7 +155,7 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
         if accounts is None:
             raise HTTPException(503, '用户管理尚未启用')
         try:
-            return accounts.reset_quota(user_id)
+            return accounts.reset_quota(user_id, default_free_quota=default_free_quota())
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
 
@@ -156,6 +170,19 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
             return accounts.set_disabled(user_id, disabled)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    @app.post('/api/admin/users/free-quota/top-up', dependencies=[Depends(admin)])
+    def top_up_free_users():
+        if accounts is None:
+            raise HTTPException(503, '用户管理尚未启用')
+        values = settings.effective()
+        if values['service_mode'] != 'family_free':
+            raise HTTPException(400, '请先切换到家庭免费模式')
+        result = accounts.top_up_free_users(values['family_free_quota'])
+        return {
+            **result,
+            'message': f"已将 {result['updated']} 个 FREE 用户的剩余额度补到 {result['remaining']} 次",
+        }
 
     @app.get('/api/admin/settings', dependencies=[Depends(admin)])
     def read_settings():
