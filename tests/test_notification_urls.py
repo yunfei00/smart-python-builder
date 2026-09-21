@@ -157,7 +157,14 @@ def test_outbound_notification_redaction_and_readability(monkeypatch):
         captured.append(json.loads(request.data)['content']['text'])
         return io.BytesIO(b'{"code":0}')
     monkeypatch.setattr('urllib.request.urlopen',send)
-    service=NotificationService.configured(DEFAULTS | {'feishu_enabled':True,'feishu_webhook':'https://example.invalid/hook','ai_api_key':key})
+    service=NotificationService.configured(
+        DEFAULTS | {
+            'feishu_enabled':True,
+            'feishu_webhook':'https://example.invalid/hook',
+            'ai_api_key':key,
+        },
+        allow_external_during_tests=True,
+    )
     service.emit({'event':'Build Success','project':key,'build_id':'build-id','entry':'main.py','attempt_count':1,'status':'SUCCESS','details_url':'http://192.168.1.105:8000/?job=web-job','diagnoses':key,'api_key':key,'session_secret':key})
     assert key not in captured[0]
     assert '✅ 构建成功' in captured[0] and '尝试次数：1' in captured[0]
