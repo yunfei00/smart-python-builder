@@ -81,7 +81,7 @@ def _entry_candidates(root: Path, files: list[Path]) -> list[Path]:
             continue
         if path.name in by_name:
             by_name[path.name].append(path)
-        elif _looks_like_runnable_entry(path):
+        if _looks_like_runnable_entry(path) and path.name not in ENTRY_NAMES:
             discovered.append(path)
 
     for name in ENTRY_NAMES:
