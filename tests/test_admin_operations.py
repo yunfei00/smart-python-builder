@@ -129,10 +129,9 @@ def test_manual_retention_cleanup_removes_only_expired_non_active_jobs(tmp_path)
         'id': recent_id, 'status': 'SUCCESS', 'terminal': True,
         'created_at': now, 'started_at': now, 'finished_at': now, 'owner_id': None,
     }
-    app.state.jobs.update({old_id: old_job, active_id: active_job, recent_id: recent_job})
-    (tmp_path / f'{old_id}.json').write_text(json.dumps(old_job), encoding='utf-8')
-
     with TestClient(app) as client:
+        app.state.jobs.update({old_id: old_job, active_id: active_job, recent_id: recent_job})
+        (tmp_path / f'{old_id}.json').write_text(json.dumps(old_job), encoding='utf-8')
         preview = client.get('/api/admin/maintenance/cleanup-preview', headers=ADMIN_HEADERS)
         assert preview.status_code == 200
         assert preview.json()['count'] == 1
