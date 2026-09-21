@@ -34,6 +34,9 @@ def test_admin_user_search_plan_state_filters_and_build_count(tmp_path):
         'id': '2' * 32, 'owner_id': first['id'], 'status': 'FAILED',
         'terminal': True, 'created_at': time.time(), 'started_at': time.time(),
     }
+    # These jobs are injected directly for this test, so mirror application
+    # startup by backfilling the durable analytics ledger explicitly.
+    app.state.analytics.backfill(app.state.jobs.values())
 
     with TestClient(app) as client:
         result = client.get('/api/admin/users?search=alpha', headers=ADMIN_HEADERS)
@@ -76,6 +79,9 @@ def test_admin_overview_build_queue_ai_disk_and_feedback_stats(tmp_path):
             'terminal': False, 'created_at': now,
         },
     })
+    # Directly injected jobs do not pass through /build, therefore populate
+    # the same durable ledger that production writes at build start/finish.
+    app.state.analytics.backfill(app.state.jobs.values())
     uploads = tmp_path / 'uploads'
     uploads.mkdir(exist_ok=True)
     (uploads / 'sample.bin').write_bytes(b'x' * 2048)
