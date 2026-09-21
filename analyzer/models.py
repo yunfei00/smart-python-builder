@@ -11,6 +11,7 @@ class ProjectAnalysis:
     python_files: list[Path]
     entry_point: Path | None
     entry_candidates: list[Path] = field(default_factory=list)
+    entry_details: list[dict[str, str | bool]] = field(default_factory=list)
     imports: set[str] = field(default_factory=set)
     stdlib_imports: set[str] = field(default_factory=set)
     internal_imports: set[str] = field(default_factory=set)
