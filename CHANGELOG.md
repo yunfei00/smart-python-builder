@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2 (2026-09-21)
+
+- Added a configurable service mode with **family free** as the default and a reserved **commercial** mode.
+- Family free mode gives new FREE users 10000 builds by default; the quota is configurable from administrator settings.
+- Added a protected administrator action to set every existing FREE user's remaining quota to the configured family quota.
+- FREE quota reset and TEST→FREE conversion now use the active service-mode default.
+- Administrator-created FREE users automatically use the active default quota unless a custom value is entered.
+- Commercial mode keeps the original FREE 3-build default and does not enable payment or order features.
+
 ## 1.2.1 (2026-09-21)
 
 - Added username-first customer accounts with optional email, legacy email-login compatibility and automatic migration of existing email-only accounts.
