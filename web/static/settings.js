@@ -11,6 +11,16 @@ function populate(values, form = null) {
   $('overrides').hidden = !values.overridden.length;
   $('overrides').textContent = '环境变量优先覆盖以下设置：' + values.overridden.join(', ') + '。若要使用后台保存值，请移除对应环境变量并重启服务。';
   baseUrlWarning();
+  serviceModeUi();
+}
+function serviceModeUi() {
+  const mode = $('service_mode');
+  const button = $('top-up-free-users');
+  if (!mode || !button) return;
+  button.disabled = mode.value !== 'family_free';
+  button.title = mode.value === 'family_free'
+    ? '保存设置后，将所有 FREE 用户剩余额度补到当前家庭免费额度'
+    : '请先切换到家庭免费模式';
 }
 function baseUrlWarning() {
   const message = $('base-url-warning');
@@ -23,6 +33,7 @@ function baseUrlWarning() {
   } catch { message.className = 'warning'; message.textContent = '请输入完整 HTTP(S) 访问地址。'; }
 }
 $('base_url').oninput = baseUrlWarning;
+$('service_mode')?.addEventListener('change', serviceModeUi);
 function payload(form) {
   const result = {};
   for (const input of form.elements) {
@@ -41,8 +52,39 @@ async function action(form, path, save = false) {
   } catch (error) { message.className = 'message error'; message.textContent = error.message; }
   finally { buttons.forEach(button => button.disabled = false); }
 }
-for (const id of ['builder-settings','ai-settings','feishu-settings']) $(id).onsubmit = event => { event.preventDefault(); action(event.target, '/api/admin/settings', true); };
+for (const id of ['account-policy-settings','builder-settings','ai-settings','feishu-settings']) $(id).onsubmit = event => { event.preventDefault(); action(event.target, '/api/admin/settings', true); };
 for (const button of document.querySelectorAll('[data-replace]')) button.onclick = () => { const input = $(button.dataset.replace); input.hidden = false; input.disabled = false; input.focus(); };
 $('test-ai').onclick = () => action($('ai-settings'), '/api/admin/settings/test-ai');
 $('test-feishu').onclick = () => action($('feishu-settings'), '/api/admin/settings/test-feishu');
+$('top-up-free-users').onclick = async () => {
+  const form = $('account-policy-settings');
+  const message = form.querySelector('.message');
+  if ($('service_mode').value !== 'family_free') {
+    message.className = 'message error';
+    message.textContent = '请先切换到家庭免费模式';
+    return;
+  }
+  if (!confirm('确定保存当前家庭免费设置，并将所有 FREE 用户的剩余额度补到 ' + $('family_free_quota').value + ' 次吗？')) return;
+  const buttons = form.querySelectorAll('button');
+  buttons.forEach(button => button.disabled = true);
+  message.className = 'message';
+  message.textContent = '正在保存设置并补足额度…';
+  try {
+    const saved = await api('/api/admin/settings', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload(form))
+    });
+    populate(saved.settings, form);
+    const result = await api('/api/admin/users/free-quota/top-up', {method:'POST'});
+    message.className = 'message success';
+    message.textContent = result.message;
+  } catch (error) {
+    message.className = 'message error';
+    message.textContent = error.message;
+  } finally {
+    buttons.forEach(button => button.disabled = false);
+    serviceModeUi();
+  }
+};
 api('/api/admin/settings').then(populate).catch(error => $('error').textContent = error.message);
