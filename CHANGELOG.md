@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 (2026-09-21)
+
+- Added an administrator operations overview with total builds, today's builds, success rate, AI repair count, user totals, feedback backlog, disk usage and live queue status.
+- Added server-side user search plus FREE/TEST and enabled/disabled account filters, with durable per-user build counts.
+- Added a durable `analytics.sqlite3` build ledger so aggregate statistics survive cleanup of heavyweight build records and artifacts.
+- Added configurable user-build retention with 1/2/6-month and 1-year presets, startup/hourly cleanup, cleanup preview and an explicit administrator cleanup action.
+- Added persistent “用户心声” feedback for signed-in users, administrator inbox/search/status workflow and optional Feishu notification delivery.
+- Changed expired build-data cleanup to fully remove eligible build records, uploads, workspaces and artifacts while preserving accounts, feedback and aggregate analytics.
+- Suppressed automatically configured external Feishu notifications during pytest runs; notification tests use fakes/mocks or explicit inspection-only opt-in.
+- Removed personal-name examples from username placeholders in customer and administrator account UI.
+
 ## 1.2.2 (2026-09-21)
 
 - Added a configurable service mode with **family free** as the default and a reserved **commercial** mode.
