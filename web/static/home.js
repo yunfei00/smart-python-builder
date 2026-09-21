@@ -75,7 +75,7 @@ function renderCurrentProject(value) {
   $('current-project-icon').textContent = github ? 'GH' : 'PY';
   $('current-project-name').textContent = projectName;
   $('current-project-source').textContent = source;
-  $('current-project-entry').textContent = value.entry ? '入口：' + value.entry : '入口候选：' + entryCount + ' 个';
+  $('current-project-entry').textContent = value.entry ? '入口：' + value.entry : '检测到可运行入口：' + entryCount + ' 个';
   $('current-project-deps').textContent = '依赖：' + depCount + ' 项';
   card.hidden = false;
   if ($('builder-step-title')) $('builder-step-title').textContent = '当前 Python 项目';
@@ -92,7 +92,7 @@ function showProject(next, current) {
   if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
   for (const value of job.entries) $('entry').add(new Option(value, value));
   $('dependencies').textContent = '✓ 依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
-  $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
+  if (job.entries.length <= 1) $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
   $('plan').textContent = JSON.stringify(job.plan, null, 2); $('build').disabled = false;
   const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
   $('build').textContent = loggedIn ? '生成 Windows 应用 →' : '登录后生成 Windows 应用 →';
