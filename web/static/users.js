@@ -8,6 +8,9 @@ const newUserQuota = document.getElementById('new-user-quota');
 const passwordModal = document.getElementById('password-modal');
 const passwordResetForm = document.getElementById('password-reset-form');
 const passwordResetMessage = document.getElementById('password-reset-message');
+const userSearch = document.getElementById('user-search');
+const userPlanFilter = document.getElementById('user-plan-filter');
+const userStateFilter = document.getElementById('user-state-filter');
 let passwordResetUserId = null;
 let defaultFreeQuota = 10000;
 
@@ -20,14 +23,12 @@ function dateLabel(epoch) {
 function quotaLabel(user) {
   return user.quota_unlimited ? '∞' : String(user.quota_remaining);
 }
-function renderSummary(users) {
-  const enabled = users.filter(user => !user.disabled).length;
-  const test = users.filter(user => user.plan === 'TEST').length;
+function renderSummary(summary) {
   userSummary.innerHTML = [
-    ['总用户', users.length, '已注册账号'],
-    ['启用中', enabled, '可以正常登录'],
-    ['FREE', users.filter(user => user.plan === 'FREE').length, '免费体验用户'],
-    ['TEST', test, '内部无限账号'],
+    ['总用户', summary.total, '已注册账号'],
+    ['启用中', summary.enabled, '可以正常登录'],
+    ['FREE', summary.free, '免费账号'],
+    ['TEST', summary.test, '内部无限账号'],
   ].map(([label,value,note]) => '<article><small>'+label+'</small><strong>'+value+'</strong><span>'+note+'</span></article>').join('');
 }
 function renderUsers(users) {
@@ -44,6 +45,7 @@ function renderUsers(users) {
       '<div class="admin-user-metric"><small>套餐</small><b>'+escapeHtml(user.plan)+'</b></div>'+
       '<div class="admin-user-metric"><small>剩余额度</small><b>'+quotaLabel(user)+'</b></div>'+
       '<div class="admin-user-metric"><small>已使用</small><b>'+escapeHtml(user.quota_used)+'</b></div>'+
+      '<div class="admin-user-metric"><small>构建次数</small><b>'+escapeHtml(user.build_count || 0)+'</b></div>'+
       '<div class="admin-user-state '+(disabled?'disabled':'enabled')+'">'+(disabled?'已停用':'正常')+'</div>'+
       '<div class="admin-user-actions">'+
         '<div class="quota-editor">'+
@@ -60,10 +62,17 @@ function renderUsers(users) {
 }
 async function loadUsers() {
   try {
-    const data = await api('/api/admin/users');
+    const params = new URLSearchParams();
+    const search = userSearch?.value.trim();
+    const plan = userPlanFilter?.value;
+    const disabled = userStateFilter?.value;
+    if (search) params.set('search', search);
+    if (plan) params.set('plan', plan);
+    if (disabled) params.set('disabled', disabled);
+    const data = await api('/api/admin/users?' + params.toString());
     defaultFreeQuota = Number(data.default_free_quota ?? 10000);
     if (newUserPlan?.value === 'FREE') newUserQuota.value = String(defaultFreeQuota);
-    renderSummary(data.users);
+    renderSummary(data.summary);
     renderUsers(data.users);
     document.getElementById('error').textContent = '';
   } catch (error) {
@@ -204,4 +213,14 @@ userRoot.addEventListener('click', async event => {
   }
 });
 refreshUsers.addEventListener('click', loadUsers);
+document.getElementById('apply-user-filter')?.addEventListener('click', loadUsers);
+document.getElementById('clear-user-filter')?.addEventListener('click', () => {
+  if (userSearch) userSearch.value = '';
+  if (userPlanFilter) userPlanFilter.value = '';
+  if (userStateFilter) userStateFilter.value = '';
+  loadUsers();
+});
+userSearch?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') loadUsers();
+});
 loadUsers();

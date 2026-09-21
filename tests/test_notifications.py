@@ -40,3 +40,22 @@ def test_feishu_contract(monkeypatch):
         return io.BytesIO(b'{"code":0}')
     monkeypatch.setattr('urllib.request.urlopen',urlopen)
     FeishuNotifier('https://example.invalid/hook').send({'event':'Build Failed'})
+
+
+def test_configured_notifications_are_suppressed_during_pytest(monkeypatch):
+    monkeypatch.setenv('PYTEST_CURRENT_TEST', 'tests/test_notifications.py::suppression (call)')
+    settings = {
+        'feishu_enabled': True,
+        'feishu_webhook': 'https://example.invalid/real-looking-hook',
+        'ai_api_key': '',
+        'admin_token': '',
+    }
+    service = NotificationService.configured(settings)
+    assert service.notifier is None
+
+    inspected = NotificationService.configured(
+        settings,
+        allow_external_during_tests=True,
+    )
+    assert isinstance(inspected.notifier, FeishuNotifier)
+    assert inspected.notifier.webhook == settings['feishu_webhook']

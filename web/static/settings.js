@@ -34,6 +34,12 @@ function baseUrlWarning() {
 }
 $('base_url').oninput = baseUrlWarning;
 $('service_mode')?.addEventListener('change', serviceModeUi);
+for (const button of document.querySelectorAll('[data-retention]')) {
+  button.addEventListener('click', () => {
+    $('retention_days').value = button.dataset.retention;
+    $('retention_days').focus();
+  });
+}
 function payload(form) {
   const result = {};
   for (const input of form.elements) {

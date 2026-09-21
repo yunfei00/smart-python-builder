@@ -20,14 +20,14 @@
       <input type="hidden" name="next" value="{{ next_url }}">
       {% if mode == 'register' %}
       <label for="username">用户名 *</label>
-      <input id="username" name="username" autocomplete="username" minlength="2" maxlength="32" required value="{{ username or '' }}" placeholder="yunfei 或 云飞">
+      <input id="username" name="username" autocomplete="username" minlength="2" maxlength="32" required value="{{ username or '' }}" placeholder="user_01">
       <small>用户名用于登录。2–32 个中文、英文字母、数字、下划线或中划线，不允许空格或 @。</small>
       <label for="email">邮箱（选填）</label>
       <input id="email" name="email" type="email" autocomplete="email" maxlength="254" value="{{ email or '' }}" placeholder="you@example.com">
       <small>邮箱暂时为选填，后续可用于账号找回。</small>
       {% else %}
       <label for="login">用户名 / 邮箱</label>
-      <input id="login" name="login" autocomplete="username" maxlength="254" required value="{{ login or '' }}" placeholder="yunfei 或 you@example.com">
+      <input id="login" name="login" autocomplete="username" maxlength="254" required value="{{ login or '' }}" placeholder="user_01 或 user@example.com">
       {% endif %}
       <label for="password">{{ '密码 *' if mode == 'register' else '密码' }}</label>
       <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if mode == 'register' else 'current-password' }}" minlength="8" maxlength="128" required placeholder="至少 8 个字符">

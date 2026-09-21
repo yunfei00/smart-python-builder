@@ -1,5 +1,5 @@
 {% extends 'admin_base.html' %}
-{% block scripts %}<script src="/static/settings.js?v=1.2.1-family-mode" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/settings.js?v=admin-ops-1" defer></script>{% endblock %}
 {% block content %}
 <div class="settings-page">
 <div class="settings-heading"><span class="eyebrow">SYSTEM SETTINGS</span><h2>系统设置</h2><p>管理 Builder、AI 服务与通知配置。</p></div>
@@ -11,8 +11,9 @@
 <section class="settings-card"><div class="settings-card-head"><h3>Builder 服务</h3><p>访问地址、主机与文件保留策略。</p></div><form id="builder-settings" class="field settings-form">
 <label for="base_url">Builder 访问地址</label><input id="base_url" name="base_url" type="url" required placeholder="http://192.168.1.105:8000"><small>用于飞书通知中的任务详情、管理员审批等链接。请填写其他设备能够访问 Smart Python Builder 的地址。示例：http://192.168.1.105:8000 或 https://builder.example.com。保存后用于后续通知，无需重启；Listening Host 与 Allowed Hosts 不会随之修改。</small><p id="base-url-warning" role="status"></p>
 <label for="allowed_hosts">Allowed Hosts · 访问地址</label><input id="allowed_hosts" name="allowed_hosts" required><small>允许访问 Builder 的主机地址，多个地址用逗号分隔。例如 localhost,127.0.0.1,192.168.1.100。局域网测试可使用 *；这不是客户端访问权限控制。</small>
-<label for="retention_days">Retention Days · 文件保留天数</label><input id="retention_days" name="retention_days" type="number" min="1" max="3650" required><small>构建文件保留多少天后自动清理。以上两项保存后需要重启服务。</small>
-<div class="actions"><button>保存 Builder 设置</button></div><p class="message" role="status"></p></form></section>
+<label for="retention_days">用户构建数据保留天数</label><input id="retention_days" name="retention_days" type="number" min="1" max="3650" required><small>超过该时间的历史构建记录、上传文件、工作区和产物会在启动时及每小时自动清理；不会删除用户账号和用户反馈。</small>
+<div class="retention-presets"><button type="button" data-retention="30">1 个月</button><button type="button" data-retention="60">2 个月</button><button type="button" data-retention="180">6 个月</button><button type="button" data-retention="365">1 年</button></div>
+<div class="actions"><button>保存 Builder 设置</button><a class="button secondary" href="/admin/overview">查看清理状态</a></div><p class="message" role="status"></p></form></section>
 <section class="settings-card"><div class="settings-card-head"><h3>AI 服务</h3><p>配置构建失败时使用的 AI 分析与自动修复。</p></div><form id="ai-settings" class="field settings-form">
 <label class="toggle-row"><input id="ai_enabled" name="ai_enabled" type="checkbox"><span>启用 AI 修复</span></label><small>构建失败时请 AI 分析原因，最多尝试两次受控修复。</small>
 <label for="ai_provider">Provider · 服务类型</label><select id="ai_provider" name="ai_provider"><option value="openai-compatible">OpenAI compatible</option></select><small>使用兼容 Chat Completions 的 AI 服务。</small>
@@ -22,6 +23,7 @@
 <div class="actions"><button type="button" id="test-ai" class="secondary">测试 AI 连接</button><button>保存 AI 设置</button></div><small>测试使用当前表单与已保存密钥，发送最小请求；环境变量覆盖仍优先。</small><p class="message" role="status"></p></form></section>
 <section class="settings-card"><div class="settings-card-head"><h3>飞书通知</h3><p>配置构建结果与 AI 修复通知。</p></div><form id="feishu-settings" class="field settings-form">
 <label class="toggle-row"><input id="feishu_enabled" name="feishu_enabled" type="checkbox"><span>启用飞书通知</span></label><small>首次构建成功、首次失败及 AI 修复结束时发送通知，修复成功不会重复发送普通成功通知。通知失败不会影响构建。</small>
+<label class="toggle-row"><input id="feedback_notifications" name="feedback_notifications" type="checkbox"><span>用户反馈也发送飞书通知</span></label><small>开启后，用户提交“用户心声”时会向当前飞书机器人发送通知；反馈始终会保存在本地后台。</small>
 <label for="feishu_webhook">Webhook · 机器人地址</label><div class="secret-row"><span id="feishu_webhook-status"></span><button type="button" class="secondary" data-replace="feishu_webhook">更换 Webhook</button></div><input id="feishu_webhook" name="feishu_webhook" type="password" autocomplete="new-password" placeholder="输入新的 Webhook" hidden disabled><small>机器人地址属于密钥，未填写新地址时保留已有配置。</small>
 <div class="actions"><button type="button" id="test-feishu" class="secondary">发送测试消息</button><button>保存飞书设置</button></div><small>将向当前配置发送带时间的“飞书通知测试成功”消息。</small><p class="message" role="status"></p></form></section>
 </div>

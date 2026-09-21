@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from builder.settings import SettingsStore, allowed_hosts, MASK
 from builder.ai import FakeAIProvider, OpenAICompatibleProvider
-from builder.notifications import FakeNotifier, FeishuNotifier
+from builder.notifications import FakeNotifier, FeishuNotifier, NotificationService
 from builder.smart import SmartBuilder
 from web.app import create_app
 
@@ -133,8 +133,15 @@ def test_settings_drive_actual_builder(configured, tmp_path):
     builder = SmartBuilder(tmp_path/'workspace',settings_store=app.state.settings)
     assert isinstance(builder.ai_provider, OpenAICompatibleProvider)
     assert builder.ai_provider.model == 'saved-model'
-    assert isinstance(builder.notifications.notifier, FeishuNotifier)
-    assert builder.notifications.notifier.webhook == values['feishu_webhook']
+    # Ordinary pytest-created builders deliberately suppress real external
+    # notifications even when deployment settings enable Feishu.
+    assert builder.notifications.notifier is None
+    configured_notifications = NotificationService.configured(
+        app.state.settings.effective(),
+        allow_external_during_tests=True,
+    )
+    assert isinstance(configured_notifications.notifier, FeishuNotifier)
+    assert configured_notifications.notifier.webhook == values['feishu_webhook']
     client.post('/api/admin/settings',headers=headers,json={'ai_enabled':False,'feishu_enabled':False})
     builder = SmartBuilder(tmp_path/'workspace',settings_store=app.state.settings)
     assert builder.ai_provider is None and builder.notifications.notifier is None

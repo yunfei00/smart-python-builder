@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from typing import Protocol
 from .settings import environment_settings, notification_secrets
@@ -37,19 +38,23 @@ class FeishuNotifier:
 def format_message(event):
     """Only display notification metadata, never raw diagnostics/configuration."""
     titles = {'Build Success': '✅ 构建成功', 'Build Failed': '❌ 构建失败',
-              'AI Repair Success': '✅ AI 修复成功', 'AI Repair Failed': '⚠️ AI 修复失败'}
+              'AI Repair Success': '✅ AI 修复成功', 'AI Repair Failed': '⚠️ AI 修复失败',
+              'User Feedback': '💬 用户反馈'}
     kind = event.get('event')
     lines = ['Smart Python Builder', titles.get(kind, '飞书通知测试成功')]
     if kind in titles:
         lines.append(kind)
     for key, label in [('project', '项目'), ('build_id', 'Build ID'), ('entry', '入口'),
                        ('attempt_count', '尝试次数'), ('status', '状态'), ('mode', '输出格式'),
-                       ('experience_candidate', '经验候选'), ('time', '时间')]:
+                       ('experience_candidate', '经验候选'), ('username', '用户'),
+                       ('category', '反馈类型'), ('message', '反馈内容'), ('time', '时间')]:
         if event.get(key) is not None:
             lines.append(f'{label}：{event[key]}')
     if event.get('dependencies'):
         lines.append('依赖：' + ', '.join(event['dependencies']))
-    for key, label in [('details_url', '查看任务'), ('approval_url', '管理员审批')]:
+    link_labels = [('details_url', '查看反馈' if kind == 'User Feedback' else '查看任务'),
+                   ('approval_url', '管理员审批')]
+    for key, label in link_labels:
         if event.get(key):
             lines.extend(['', label + '：', event[key]])
     return '\n'.join(lines)
@@ -81,6 +86,13 @@ class NotificationService:
             self.failures.append(type(exc).__name__)
 
     @classmethod
-    def configured(cls, settings=None):
+    def configured(cls, settings=None, *, allow_external_during_tests=False):
         settings = settings if settings is not None else environment_settings()[0]
+        # pytest sets PYTEST_CURRENT_TEST while each test/fixture executes.
+        # Never let ordinary test runs reach a real Feishu webhook, even when
+        # local deployment settings or environment variables enable it.
+        # Notification contract tests can opt in explicitly and should mock
+        # the network or provide a fake notifier.
+        if os.environ.get('PYTEST_CURRENT_TEST') and not allow_external_during_tests:
+            return cls()
         return cls(FeishuNotifier(settings['feishu_webhook']), notification_secrets(settings)) if settings['feishu_enabled'] and settings['feishu_webhook'] else cls()

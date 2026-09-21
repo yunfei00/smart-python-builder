@@ -1,0 +1,51 @@
+{% extends 'admin_base.html' %}
+{% block scripts %}<script src="/static/overview.js?v=1" defer></script>{% endblock %}
+{% block content %}
+<section class="admin-section">
+  <div class="workspace-title">
+    <div><span class="eyebrow">OPERATIONS</span><h2>运营概览</h2><p>查看用户、构建、AI 修复、队列和磁盘状态。</p></div>
+    <button id="refresh-overview" class="secondary">刷新数据</button>
+  </div>
+
+  <div class="workspace-stats operations-stats">
+    <article><small>总构建量</small><strong id="stat-total-builds">--</strong><span>已开始的构建任务</span></article>
+    <article><small>今日构建量</small><strong id="stat-today-builds">--</strong><span>按服务器本地日期统计</span></article>
+    <article><small>成功率</small><strong id="stat-success-rate">--</strong><span>SUCCESS / 已结束任务（不含取消）</span></article>
+    <article><small>AI 修复次数</small><strong id="stat-ai-repairs">--</strong><span>实际进入 AI 重试的次数</span></article>
+    <article><small>总用户</small><strong id="stat-users">--</strong><span id="stat-users-note">FREE / TEST</span></article>
+    <article><small>待处理反馈</small><strong id="stat-feedback">--</strong><span>NEW 状态用户心声</span></article>
+    <article><small>磁盘占用</small><strong id="stat-disk">--</strong><span id="stat-disk-note">Builder 数据目录</span></article>
+    <article><small>队列状态</small><strong id="stat-queue">--</strong><span id="stat-queue-note">1 worker · 上限 8</span></article>
+  </div>
+</section>
+
+<section class="admin-section">
+  <div class="workspace-title">
+    <div><h2>队列详情</h2><p>用于判断当前 Builder 是否繁忙或存在排队。</p></div>
+  </div>
+  <div id="queue-details" class="operations-detail-grid"></div>
+</section>
+
+<section class="admin-section">
+  <div class="workspace-title">
+    <div><h2>磁盘详情</h2><p>统计 web-data 下上传、工作区、数据库和任务元数据占用。</p></div>
+  </div>
+  <div id="disk-details" class="operations-detail-grid"></div>
+</section>
+
+<section class="admin-section danger-zone-soft">
+  <div class="workspace-title">
+    <div>
+      <h2>历史构建数据清理</h2>
+      <p>仅清理超过保留期限的 READY/终态构建记录及关联上传、工作区和产物，不删除用户账号和用户反馈。</p>
+    </div>
+  </div>
+  <div class="cleanup-panel">
+    <div><small>当前保留时间</small><strong id="retention-label">--</strong></div>
+    <div><small>可清理记录</small><strong id="cleanup-count">--</strong></div>
+    <div><small>预计释放</small><strong id="cleanup-bytes">--</strong></div>
+    <button id="cleanup-now" class="secondary danger-button">立即清理过期数据</button>
+  </div>
+  <p id="cleanup-message" class="message" role="status"></p>
+</section>
+{% endblock %}

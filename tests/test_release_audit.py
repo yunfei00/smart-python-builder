@@ -19,7 +19,7 @@ def test_production_provider_selection(monkeypatch, configured):
         monkeypatch.setenv('BUILDER_AI_BASE_URL', 'https://example.invalid/v1')
         monkeypatch.setenv('BUILDER_FEISHU_WEBHOOK', 'https://example.invalid/webhook')
     ai = configured_provider()
-    notifier = NotificationService.configured().notifier
+    notifier = NotificationService.configured(allow_external_during_tests=True).notifier
     assert not isinstance(ai, FakeAIProvider)
     assert not isinstance(notifier, FakeNotifier)
     if configured:

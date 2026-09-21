@@ -9,14 +9,27 @@ from fastapi.responses import RedirectResponse
 
 from builder.ai import configured_provider
 from builder.notifications import FeishuNotifier
+from .maintenance import cleanup_jobs, disk_usage
 
 COOKIE = 'builder_admin'
 
 
-def register_admin(app, templates, settings, admin_token=None, ai_factory=None, notifier_factory=None, accounts=None):
+def register_admin(
+    app,
+    templates,
+    settings,
+    admin_token=None,
+    ai_factory=None,
+    notifier_factory=None,
+    accounts=None,
+    *,
+    runtime=None,
+    feedback_store=None,
+):
     admin_token = admin_token or settings.effective()['admin_token']
     failures = {}
     login_lock = threading.Lock()
+    runtime = runtime or {}
 
     def session(request):
         return settings.session(request.cookies.get(COOKIE, ''))
@@ -57,7 +70,7 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
                 return templates.TemplateResponse(request=request, name='login.html', context={'initialized': settings.initialized(), 'error': '密码错误或管理员尚未初始化'}, status_code=401, headers={'Cache-Control': 'no-store'})
             failures.pop(address, None)
         settings.logout(request.cookies.get(COOKIE, ''))
-        response = RedirectResponse('/admin', status_code=303)
+        response = RedirectResponse('/admin/overview', status_code=303)
         response.set_cookie(COOKIE, settings.new_session(), httponly=True, samesite='lax', secure=settings.effective()['cookie_secure'], max_age=28800, path='/')
         response.headers['Cache-Control'] = 'no-store'
         return response
@@ -79,6 +92,14 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
     def experience_page(request: Request):
         return page(request, 'admin.html')
 
+    @app.get('/admin/overview')
+    def overview_page(request: Request):
+        return page(request, 'overview.html')
+
+    @app.get('/admin/feedback')
+    def feedback_page(request: Request):
+        return page(request, 'feedback_admin.html')
+
     @app.get('/admin/settings')
     def settings_page(request: Request):
         return page(request, 'settings.html')
@@ -92,13 +113,35 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
         values = settings.effective()
         return values['family_free_quota'] if values['service_mode'] == 'family_free' else 3
 
+    def build_counts_by_owner():
+        analytics = runtime.get('analytics')
+        if analytics is not None:
+            return analytics.counts_by_user()
+        counts = {}
+        jobs = runtime.get('jobs') or {}
+        for job in jobs.values():
+            if not job.get('started_at') and job.get('status') in {None, 'READY'}:
+                continue
+            owner_id = job.get('owner_id')
+            if owner_id:
+                counts[owner_id] = counts.get(owner_id, 0) + 1
+        return counts
+
     @app.get('/api/admin/users', dependencies=[Depends(admin)])
-    def list_users():
+    def list_users(search: str = '', plan: str = '', disabled: str = ''):
         if accounts is None:
             raise HTTPException(503, '用户管理尚未启用')
         values = settings.effective()
+        try:
+            users = accounts.list_users(search=search, plan=plan, disabled=disabled)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        counts = build_counts_by_owner()
+        for user in users:
+            user['build_count'] = counts.get(user['id'], 0)
         return {
-            'users': accounts.list_users(),
+            'users': users,
+            'summary': accounts.user_summary(),
             'service_mode': values['service_mode'],
             'default_free_quota': default_free_quota(),
             'family_free_quota': values['family_free_quota'],
@@ -184,6 +227,123 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
             'message': f"已将 {result['updated']} 个 FREE 用户的剩余额度补到 {result['remaining']} 次",
         }
 
+    @app.get('/api/admin/overview', dependencies=[Depends(admin)])
+    def overview():
+        jobs = list((runtime.get('jobs') or {}).values())
+        analytics = runtime.get('analytics')
+        if analytics is not None:
+            build_summary = analytics.summary()
+        else:
+            built = [
+                job for job in jobs
+                if job.get('started_at') or job.get('status') not in {None, 'READY'}
+            ]
+            today = time.localtime()
+            day_start = time.mktime((today.tm_year, today.tm_mon, today.tm_mday, 0, 0, 0, 0, 0, -1))
+            today_builds = sum(
+                (job.get('started_at') or job.get('created_at') or 0) >= day_start
+                for job in built
+            )
+            successes = sum(job.get('status') == 'SUCCESS' for job in built)
+            failures = sum(job.get('status') in {'FAILED', 'NEEDS_MANUAL_REVIEW'} for job in built)
+            completed = successes + failures
+            ai_repairs = 0
+            for job in built:
+                for attempt in job.get('attempts', []):
+                    if not isinstance(attempt, dict):
+                        continue
+                    repair = attempt.get('repair')
+                    if isinstance(repair, dict) and repair.get('retry'):
+                        ai_repairs += 1
+            build_summary = {
+                'total': len(built),
+                'today': int(today_builds),
+                'success': int(successes),
+                'failed': int(failures),
+                'success_rate': round(successes * 100 / completed, 1) if completed else None,
+                'ai_repairs': int(ai_repairs),
+            }
+
+        statuses = [job.get('status') for job in jobs]
+        queued = statuses.count('QUEUED')
+        running = sum(status in {'BUILDING', 'AI_DIAGNOSING', 'AI_REPAIRING', 'REBUILDING'} for status in statuses)
+        canceling = statuses.count('CANCELING')
+        root = runtime.get('root')
+        storage = disk_usage(root) if root is not None else {
+            'total_bytes': 0, 'uploads_bytes': 0, 'workspace_bytes': 0,
+            'database_bytes': 0, 'metadata_bytes': 0,
+        }
+        feedback = feedback_store.summary() if feedback_store is not None else {'total': 0, 'new': 0, 'resolved': 0}
+        return {
+            'users': accounts.user_summary() if accounts is not None else {'total': 0, 'enabled': 0, 'free': 0, 'test': 0},
+            'builds': build_summary,
+            'queue': {
+                'queued': int(queued),
+                'running': int(running),
+                'canceling': int(canceling),
+                'active_slots': int(queued + running + canceling),
+                'limit': 8,
+                'workers': 1,
+                'futures': len(runtime.get('futures') or {}),
+                'active_builders': len(runtime.get('active_builders') or {}),
+            },
+            'disk': storage,
+            'feedback': feedback,
+            'retention_days': settings.effective()['retention_days'],
+        }
+
+    @app.get('/api/admin/maintenance/cleanup-preview', dependencies=[Depends(admin)])
+    def cleanup_preview():
+        root = runtime.get('root')
+        jobs = runtime.get('jobs')
+        if root is None or jobs is None:
+            raise HTTPException(503, '运行时清理服务尚未启用')
+        retention = settings.effective()['retention_days'] * 86400
+        lock = runtime.get('lock')
+        if lock is None:
+            return cleanup_jobs(root, jobs, retention, dry_run=True)
+        with lock:
+            return cleanup_jobs(root, jobs, retention, dry_run=True)
+
+    @app.post('/api/admin/maintenance/cleanup', dependencies=[Depends(admin)])
+    def cleanup_now():
+        root = runtime.get('root')
+        jobs = runtime.get('jobs')
+        if root is None or jobs is None:
+            raise HTTPException(503, '运行时清理服务尚未启用')
+        retention = settings.effective()['retention_days'] * 86400
+        lock = runtime.get('lock')
+        if lock is None:
+            result = cleanup_jobs(root, jobs, retention, dry_run=False)
+        else:
+            with lock:
+                result = cleanup_jobs(root, jobs, retention, dry_run=False)
+        return {
+            **result,
+            'message': f"已清理 {result['count']} 条过期构建记录",
+        }
+
+    @app.get('/api/admin/feedback', dependencies=[Depends(admin)])
+    def list_feedback(search: str = '', status: str = '', category: str = ''):
+        if feedback_store is None:
+            raise HTTPException(503, '用户反馈尚未启用')
+        try:
+            return {
+                'items': feedback_store.list_admin(search=search, status=status, category=category),
+                'summary': feedback_store.summary(),
+            }
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/admin/feedback/{identifier}/status', dependencies=[Depends(admin)])
+    def update_feedback(identifier: str, payload: dict):
+        if feedback_store is None:
+            raise HTTPException(503, '用户反馈尚未启用')
+        try:
+            return feedback_store.set_status(identifier, payload.get('status', ''))
+        except ValueError as exc:
+            raise HTTPException(404 if '不存在' in str(exc) else 400, str(exc)) from exc
+
     @app.get('/api/admin/settings', dependencies=[Depends(admin)])
     def read_settings():
         return settings.public()
@@ -195,7 +355,7 @@ def register_admin(app, templates, settings, admin_token=None, ai_factory=None, 
             result = settings.save(payload)
         except (ValueError, TypeError):
             raise HTTPException(400, '配置无效：请检查 Hosts、天数及服务地址；Builder 地址须为 HTTP(S)，不能含查询、片段、凭证或 0.0.0.0。') from None
-        restart = any(key in payload and previous[key] != result[key] for key in ('allowed_hosts', 'retention_days'))
+        restart = any(key in payload and previous[key] != result[key] for key in ('allowed_hosts',))
         return {'settings': result, 'message': '保存成功，重启 Smart Python Builder 后生效。Builder 访问地址立即用于后续通知（环境变量覆盖优先）。' if restart else '保存成功，后续请求将使用当前设置；Builder 访问地址立即用于后续通知。'}
 
     @app.post('/api/admin/settings/test-ai', dependencies=[Depends(admin)])
