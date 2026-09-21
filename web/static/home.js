@@ -89,10 +89,29 @@ function showProject(next, current) {
   renderCurrentProject(next);
   job = next; $('ids').textContent = '项目分析完成 · 任务 ' + job.id; $('log').textContent = '等待构建开始。';
   $('project').hidden = false; $('progress').hidden = false; $('entry').replaceChildren();
-  if (!job.entry) $('entry').add(new Option('请选择程序入口', ''));
-  for (const value of job.entries) $('entry').add(new Option(value, value));
+  const details = Array.isArray(job.entry_details) ? job.entry_details : [];
+  const recommended = details.filter(item => item.recommended);
+  const others = details.filter(item => !item.recommended);
+  if (!job.entry) $('entry').add(new Option(recommended.length ? '请选择推荐构建程序' : '请选择程序入口', ''));
+  const addGroup = (label, items) => {
+    if (!items.length) return;
+    const group = document.createElement('optgroup');
+    group.label = label;
+    for (const item of items) {
+      const suffix = item.app_type === 'gui' ? ' · GUI' : ' · CLI';
+      group.appendChild(new Option(item.path + suffix, item.path));
+    }
+    $('entry').appendChild(group);
+  };
+  if (details.length) {
+    addGroup('推荐构建程序（' + recommended.length + '）', recommended);
+    addGroup('其他可运行脚本（' + others.length + '）', others);
+  } else {
+    for (const value of job.entries) $('entry').add(new Option(value, value));
+  }
   $('dependencies').textContent = '✓ 依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
-  if (job.entries.length <= 1) $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
+  if (details.length > 1) $('type').textContent = '✓ 检测到 ' + recommended.length + ' 个推荐构建程序，另有 ' + others.length + ' 个辅助/内部入口';
+  else if (job.entries.length <= 1) $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
   $('plan').textContent = JSON.stringify(job.plan, null, 2); $('build').disabled = false;
   const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
   $('build').textContent = loggedIn ? '生成 Windows 应用 →' : '登录后生成 Windows 应用 →';
