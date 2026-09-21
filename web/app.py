@@ -474,6 +474,26 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             raise HTTPException(401, '请先登录')
         return {key: value for key, value in user.items() if key != 'csrf'}
 
+    def feedback_items_for_user(user_id: str):
+        category_labels = {
+            'SUGGESTION': '功能建议',
+            'BUG': '问题反馈',
+            'EXPERIENCE': '使用体验',
+            'OTHER': '其他',
+        }
+        status_labels = {'NEW': '待处理', 'READ': '已查看', 'RESOLVED': '已解决'}
+        result = []
+        for item in feedback_store.list_for_user(user_id):
+            row = dict(item)
+            row['category_label'] = category_labels.get(row.get('category'), row.get('category', ''))
+            row['status_label'] = status_labels.get(row.get('status'), row.get('status', ''))
+            row['created_label'] = time.strftime(
+                '%Y-%m-%d %H:%M',
+                time.localtime(row.get('created_at', time.time())),
+            )
+            result.append(row)
+        return result
+
     @app.get('/feedback', response_class=HTMLResponse)
     def feedback_page(request: Request):
         user = account_session(request)
@@ -484,7 +504,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             name='feedback.html',
             context={
                 'user': user,
-                'items': feedback_store.list_for_user(user['id']),
+                'items': feedback_items_for_user(user['id']),
                 'submitted': request.query_params.get('submitted') == '1',
                 'error': '',
             },
@@ -511,7 +531,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 name='feedback.html',
                 context={
                     'user': user,
-                    'items': feedback_store.list_for_user(user['id']),
+                    'items': feedback_items_for_user(user['id']),
                     'submitted': False,
                     'error': str(exc),
                 },
