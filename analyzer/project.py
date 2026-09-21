@@ -34,15 +34,67 @@ def _internal_modules(root: Path, files: list[Path]) -> set[str]:
     return modules
 
 
+def _looks_like_runnable_entry(path: Path) -> bool:
+    """Return True when a Python file contains an executable application entry.
+
+    This deliberately looks beyond conventional filenames. Real projects often
+    keep launchers under scripts/ (for example run_gui.py) or expose a main()
+    function from a package module.
+    """
+    try:
+        source = path.read_text(encoding="utf-8-sig")
+        tree = ast.parse(source, filename=str(path))
+    except (OSError, UnicodeError, SyntaxError):
+        return False
+
+    has_main_guard = False
+    has_main_function = False
+    has_gui_bootstrap = False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "main":
+            has_main_function = True
+        if isinstance(node, ast.If):
+            try:
+                test = ast.unparse(node.test)
+            except Exception:
+                test = ""
+            if "__name__" in test and "__main__" in test:
+                has_main_guard = True
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else (func.attr if isinstance(func, ast.Attribute) else "")
+            if name in {"QApplication", "Tk", "mainloop"}:
+                has_gui_bootstrap = True
+
+    return has_main_guard or (has_main_function and has_gui_bootstrap)
+
+
 def _entry_candidates(root: Path, files: list[Path]) -> list[Path]:
+    conventional: list[Path] = []
+    discovered: list[Path] = []
     by_name = {name: [] for name in ENTRY_NAMES}
     for path in files:
+        rel_parts = path.relative_to(root).parts
+        lowered = {part.lower() for part in rel_parts}
+        if {"tests", "test"} & lowered or path.name.startswith("test_") or path.name.endswith("_test.py"):
+            continue
         if path.name in by_name:
             by_name[path.name].append(path)
-    candidates: list[Path] = []
+        elif _looks_like_runnable_entry(path):
+            discovered.append(path)
+
     for name in ENTRY_NAMES:
-        candidates.extend(sorted(by_name[name], key=lambda p: (len(p.relative_to(root).parts), str(p))))
-    return candidates
+        conventional.extend(sorted(by_name[name], key=lambda p: (len(p.relative_to(root).parts), str(p))))
+
+    # Conventional names remain first for backward compatibility, while
+    # executable launchers elsewhere in the repository are no longer hidden.
+    seen: set[Path] = set()
+    result: list[Path] = []
+    for path in conventional + sorted(discovered, key=lambda p: (len(p.relative_to(root).parts), str(p))):
+        if path not in seen:
+            result.append(path)
+            seen.add(path)
+    return result
 
 
 def _requirements(path: Path) -> list[str]:
