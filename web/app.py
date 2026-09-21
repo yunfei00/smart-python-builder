@@ -26,7 +26,7 @@ from builder import SmartBuilder
 from builder.learning import ExperienceStore
 from builder.maintenance import cleanup_workspaces
 from builder.notifications import NotificationService
-from builder.settings import SettingsStore, allowed_hosts, environment_settings
+from builder.settings import SettingsStore, allowed_hosts, environment_settings, notification_secrets
 from .admin import register_admin
 from .security import RequestLimitsMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -541,7 +541,11 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
         values = settings.effective()
         if values.get('feedback_notifications'):
-            notifications = NotificationService.configured(values)
+            notifications = (
+                NotificationService(notifier_factory(values), notification_secrets(values))
+                if notifier_factory is not None and values.get('feishu_enabled')
+                else NotificationService.configured(values)
+            )
             if notifications.notifier is not None:
                 notifications.emit({
                     'event': 'User Feedback',
