@@ -9,6 +9,7 @@ const passwordModal = document.getElementById('password-modal');
 const passwordResetForm = document.getElementById('password-reset-form');
 const passwordResetMessage = document.getElementById('password-reset-message');
 let passwordResetUserId = null;
+let defaultFreeQuota = 10000;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -60,6 +61,8 @@ function renderUsers(users) {
 async function loadUsers() {
   try {
     const data = await api('/api/admin/users');
+    defaultFreeQuota = Number(data.default_free_quota ?? 10000);
+    if (newUserPlan?.value === 'FREE') newUserQuota.value = String(defaultFreeQuota);
     renderSummary(data.users);
     renderUsers(data.users);
     document.getElementById('error').textContent = '';
@@ -101,7 +104,7 @@ createUserForm?.addEventListener('submit', async event => {
     });
     createUserForm.reset();
     newUserPlan.value = 'FREE';
-    newUserQuota.value = '3';
+    newUserQuota.value = String(defaultFreeQuota);
     syncCreateUserPlan();
     createUserMessage.className = 'message success';
     createUserMessage.textContent = '用户创建成功';
