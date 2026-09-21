@@ -230,7 +230,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         job = get_job(job_id)
         with lock:
             if job.get('cancel_requested'):
-                job.update(status='CANCELED', error='Build cancelled by user', terminal=True)
+                job.update(status='CANCELED', error='Build cancelled by user', terminal=True, finished_at=time.time())
                 owner_id = job.get('owner_id')
                 if owner_id:
                     accounts.refund_build(owner_id)
