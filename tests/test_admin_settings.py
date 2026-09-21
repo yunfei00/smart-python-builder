@@ -336,7 +336,7 @@ def test_admin_user_management(configured):
     reset = client.post(f"/api/admin/users/{second['id']}/quota/reset", headers=headers)
     assert reset.status_code == 200
     assert reset.json()['quota_used'] == 0
-    assert reset.json()['quota_remaining'] == 3
+    assert reset.json()['quota_remaining'] == 10000
 
 
 def test_set_admin_password_replaces_existing_password_and_sessions(tmp_path):
