@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from .urls import normalize_base_url, local_base_url
 
 DEFAULTS = dict(allowed_hosts='127.0.0.1,localhost,testserver', retention_days=7,
+                service_mode='family_free', family_free_quota=10000,
                 ai_enabled=False, ai_provider='openai-compatible',
                 ai_base_url='https://api.openai.com/v1', ai_model='', ai_api_key='',
                 feishu_enabled=False, feishu_webhook='', cookie_secure=False,
@@ -48,6 +49,10 @@ def validate(values):
     values['allowed_hosts'] = ','.join(allowed_hosts(values['allowed_hosts']))
     if type(values['retention_days']) is not int or not 1 <= values['retention_days'] <= 3650:
         raise ValueError('保留天数必须为 1–3650 的整数')
+    if values['service_mode'] not in {'family_free', 'commercial'}:
+        raise ValueError('运行模式必须为家庭免费模式或商业模式')
+    if type(values['family_free_quota']) is not int or not 1 <= values['family_free_quota'] <= 1_000_000:
+        raise ValueError('家庭免费默认额度必须为 1–1000000 的整数')
     for key in ('ai_enabled', 'feishu_enabled', 'cookie_secure'):
         if type(values[key]) is not bool:
             raise ValueError('开关必须为布尔值')
