@@ -82,7 +82,14 @@ def test_resources_are_in_build_plan(tmp_path):
 def test_expired_upload_cleanup(tmp_path):
     with TestClient(create_app(tmp_path)) as client:
         job=client.post('/api/uploads',files={'file':('main.py',b'print(1)')}).json()
-    path=tmp_path/(job['id']+'.json');saved=json.loads(path.read_text());saved['created_at']=0;path.write_text(json.dumps(saved))
+    path=tmp_path/(job['id']+'.json')
+    saved=json.loads(path.read_text())
+    saved['created_at']=0
+    path.write_text(json.dumps(saved))
     with TestClient(create_app(tmp_path)) as client:
-        assert client.get('/api/jobs/'+job['id']).json()['status']=='EXPIRED'
+        # Retention now removes expired build records and their managed files
+        # instead of keeping an EXPIRED tombstone indefinitely.
+        response=client.get('/api/jobs/'+job['id'])
+        assert response.status_code==404
     assert not (tmp_path/'uploads'/job['id']).exists()
+    assert not path.exists()
