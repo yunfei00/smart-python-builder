@@ -288,13 +288,56 @@ class AccountStore:
                 db.execute("UPDATE users SET quota_used=quota_used+1 WHERE id=?", (user_id,))
         return self.get_user(user_id)
 
-    def list_users(self, limit: int = 200) -> list[dict]:
+    def list_users(
+        self,
+        limit: int = 200,
+        *,
+        search: str = "",
+        plan: str = "",
+        disabled: str = "",
+    ) -> list[dict]:
+        clauses = []
+        params: list[object] = []
+        search = (search or "").strip()[:100]
+        if search:
+            clauses.append("(username LIKE ? COLLATE NOCASE OR COALESCE(email,'') LIKE ? COLLATE NOCASE)")
+            value = f"%{search}%"
+            params.extend([value, value])
+        plan = (plan or "").strip().upper()
+        if plan:
+            if plan not in {"FREE", "TEST"}:
+                raise ValueError("套餐筛选无效")
+            clauses.append("plan=?")
+            params.append(plan)
+        disabled = (disabled or "").strip().lower()
+        if disabled:
+            if disabled not in {"enabled", "disabled"}:
+                raise ValueError("账号状态筛选无效")
+            clauses.append("disabled=?")
+            params.append(1 if disabled == "disabled" else 0)
+
         limit = max(1, min(int(limit), 1000))
+        sql = "SELECT * FROM users"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with self.connect() as db:
-            rows = db.execute(
-                "SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = db.execute(sql, params).fetchall()
         return [self._public(row) | {"disabled": bool(row["disabled"])} for row in rows]
+
+    def user_summary(self) -> dict:
+        with self.connect() as db:
+            total = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            enabled = db.execute("SELECT COUNT(*) FROM users WHERE disabled=0").fetchone()[0]
+            free = db.execute("SELECT COUNT(*) FROM users WHERE plan='FREE'").fetchone()[0]
+            test = db.execute("SELECT COUNT(*) FROM users WHERE plan='TEST'").fetchone()[0]
+        return {
+            "total": int(total),
+            "enabled": int(enabled),
+            "free": int(free),
+            "test": int(test),
+        }
 
     def set_disabled(self, user_id: str, disabled: bool) -> dict:
         with self.connect() as db:
