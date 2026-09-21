@@ -46,9 +46,9 @@
       <div class="feedback-list">
         {% for item in items %}
         <article class="feedback-item">
-          <div><strong>{{ item.category }}</strong><span>{{ item.status }}</span></div>
+          <div><strong>{{ item.category_label }}</strong><span>{{ item.status_label }}</span></div>
           <p>{{ item.message }}</p>
-          <small>{{ item.created_at|int }}</small>
+          <small>{{ item.created_label }}</small>
         </article>
         {% endfor %}
       </div>
