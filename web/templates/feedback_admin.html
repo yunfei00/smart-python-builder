@@ -1,0 +1,36 @@
+{% extends 'admin_base.html' %}
+{% block scripts %}<script src="/static/feedback_admin.js?v=1" defer></script>{% endblock %}
+{% block content %}
+<section class="admin-section">
+  <div class="workspace-title">
+    <div><span class="eyebrow">VOICE OF USER</span><h2>用户心声</h2><p>查看用户意见、问题和体验反馈。</p></div>
+    <button id="refresh-feedback" class="secondary">刷新反馈</button>
+  </div>
+
+  <div class="workspace-stats feedback-summary">
+    <article><small>全部反馈</small><strong id="feedback-total">--</strong><span>已收到</span></article>
+    <article><small>待处理</small><strong id="feedback-new">--</strong><span>NEW</span></article>
+    <article><small>已解决</small><strong id="feedback-resolved">--</strong><span>RESOLVED</span></article>
+  </div>
+
+  <div class="admin-filter-bar">
+    <input id="feedback-search" type="search" maxlength="100" placeholder="搜索用户名或反馈内容">
+    <select id="feedback-category">
+      <option value="">全部类型</option>
+      <option value="SUGGESTION">功能建议</option>
+      <option value="BUG">问题反馈</option>
+      <option value="EXPERIENCE">使用体验</option>
+      <option value="OTHER">其他</option>
+    </select>
+    <select id="feedback-status">
+      <option value="">全部状态</option>
+      <option value="NEW">待处理</option>
+      <option value="READ">已查看</option>
+      <option value="RESOLVED">已解决</option>
+    </select>
+    <button id="apply-feedback-filter" class="secondary">筛选</button>
+  </div>
+
+  <div id="feedback-items" class="feedback-admin-list"></div>
+</section>
+{% endblock %}
