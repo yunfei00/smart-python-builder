@@ -37,14 +37,16 @@ class FeishuNotifier:
 def format_message(event):
     """Only display notification metadata, never raw diagnostics/configuration."""
     titles = {'Build Success': '✅ 构建成功', 'Build Failed': '❌ 构建失败',
-              'AI Repair Success': '✅ AI 修复成功', 'AI Repair Failed': '⚠️ AI 修复失败'}
+              'AI Repair Success': '✅ AI 修复成功', 'AI Repair Failed': '⚠️ AI 修复失败',
+              'User Feedback': '💬 用户反馈'}
     kind = event.get('event')
     lines = ['Smart Python Builder', titles.get(kind, '飞书通知测试成功')]
     if kind in titles:
         lines.append(kind)
     for key, label in [('project', '项目'), ('build_id', 'Build ID'), ('entry', '入口'),
                        ('attempt_count', '尝试次数'), ('status', '状态'), ('mode', '输出格式'),
-                       ('experience_candidate', '经验候选'), ('time', '时间')]:
+                       ('experience_candidate', '经验候选'), ('username', '用户'),
+                       ('category', '反馈类型'), ('message', '反馈内容'), ('time', '时间')]:
         if event.get(key) is not None:
             lines.append(f'{label}：{event[key]}')
     if event.get('dependencies'):
