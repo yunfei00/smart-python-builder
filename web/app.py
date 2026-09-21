@@ -33,6 +33,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
 from .repositories import RepositoryImportError, clone_public_github_repository, safe_git_diagnostic
 from .accounts import AccountStore, USER_COOKIE, SESSION_SECONDS
+from .analytics import AnalyticsStore, repair_count_from_attempts
 from .feedback import FeedbackStore
 from .maintenance import cleanup_jobs, delete_job_files
 
@@ -46,6 +47,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     root.mkdir(parents=True, exist_ok=True)
     settings = SettingsStore(root / 'settings.sqlite3')
     accounts = AccountStore(root / 'accounts.sqlite3')
+    analytics = AnalyticsStore(root / 'analytics.sqlite3')
     feedback_store = FeedbackStore(root / 'feedback.sqlite3')
     startup_settings = settings.effective()
     def make_builder():
@@ -85,6 +87,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             jobs[job['id']] = job
         except (OSError, ValueError, KeyError):
             continue
+    analytics.backfill(jobs.values())
 
     @asynccontextmanager
     async def lifespan(app):
@@ -128,6 +131,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     app.state.experience_store = store
     app.state.settings = settings
     app.state.accounts = accounts
+    app.state.analytics = analytics
     app.state.feedback_store = feedback_store
     admin = register_admin(
         app,
@@ -143,6 +147,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             'futures': futures,
             'active_builders': active_builders,
             'lock': lock,
+            'analytics': analytics,
         },
         feedback_store=feedback_store,
     )
@@ -231,6 +236,13 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         with lock:
             if job.get('cancel_requested'):
                 job.update(status='CANCELED', error='Build cancelled by user', terminal=True, finished_at=time.time())
+                analytics.finish(
+                    job_id,
+                    'CANCELED',
+                    finished_at=job['finished_at'],
+                    user_id=job.get('owner_id'),
+                    started_at=job.get('started_at') or job.get('created_at'),
+                )
                 owner_id = job.get('owner_id')
                 if owner_id:
                     accounts.refund_build(owner_id)
@@ -287,6 +299,14 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 futures.pop(job_id, None)
                 job['terminal'] = True
                 job.setdefault('finished_at', time.time())
+                analytics.finish(
+                    job_id,
+                    job.get('status', 'UNKNOWN'),
+                    finished_at=job['finished_at'],
+                    ai_repairs=repair_count_from_attempts(job.get('attempts')),
+                    user_id=job.get('owner_id'),
+                    started_at=job.get('started_at') or job.get('created_at'),
+                )
                 persist(job)
 
     @app.get('/', response_class=HTMLResponse)
@@ -669,6 +689,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             except ValueError as exc:
                 raise HTTPException(402, str(exc)) from exc
             job.update(status='QUEUED', terminal=False, cancel_requested=False, started_at=time.time())
+            analytics.start(job_id, user['id'], job['started_at'])
             persist(job)
             future = pool.submit(run_job, job_id, entry, mode)
             futures[job_id] = future
@@ -712,6 +733,13 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             if status == 'QUEUED' and future is not None and future.cancel():
                 futures.pop(job_id, None)
                 job.update(status='CANCELED', error='Build cancelled before execution', terminal=True, finished_at=time.time())
+                analytics.finish(
+                    job_id,
+                    'CANCELED',
+                    finished_at=job['finished_at'],
+                    user_id=user['id'],
+                    started_at=job.get('started_at') or job.get('created_at'),
+                )
                 accounts.refund_build(user['id'])
                 persist(job)
                 return {'id': job_id, 'status': 'CANCELED', 'quota_refunded': True}
