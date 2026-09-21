@@ -148,6 +148,10 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     def account_session(request: Request):
         return accounts.session(request.cookies.get(USER_COOKIE, ''))
 
+    def default_free_quota():
+        values = settings.effective()
+        return values['family_free_quota'] if values['service_mode'] == 'family_free' else 3
+
     def safe_next_url(value, default='/dashboard'):
         value = (value or '').strip()
         if not value or len(value) > 2048 or '\\' in value or '\r' in value or '\n' in value:
@@ -335,7 +339,12 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             raise HTTPException(403, 'Cross-origin writes are disabled')
         next_url = safe_next_url(next_url)
         try:
-            user = accounts.create_user(username, password, email=email)
+            user = accounts.create_user(
+                username,
+                password,
+                email=email,
+                remaining=default_free_quota(),
+            )
         except ValueError as exc:
             return account_page(request, 'register', str(exc), email[:254], next_url, username=username[:32])
         token, _ = accounts.new_session(user['id'])
