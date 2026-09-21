@@ -80,13 +80,16 @@ class AnalyticsStore:
             if not isinstance(job, dict):
                 continue
             status = job.get('status')
+            job_id = job.get('id')
+            if not isinstance(job_id, str) or not job_id:
+                continue
             if not job.get('started_at') and status in {None, 'READY'}:
                 continue
             started = job.get('started_at') or job.get('created_at') or time.time()
-            self.start(job.get('id', ''), job.get('owner_id'), started)
+            self.start(job_id, job.get('owner_id'), started)
             if job.get('terminal') or status in {'SUCCESS', 'FAILED', 'NEEDS_MANUAL_REVIEW', 'CANCELED', 'EXPIRED'}:
                 self.finish(
-                    job.get('id', ''),
+                    job_id,
                     status or 'UNKNOWN',
                     finished_at=job.get('finished_at') or started,
                     ai_repairs=repair_count_from_attempts(job.get('attempts')),
