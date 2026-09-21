@@ -38,8 +38,9 @@ the current acceptance suite runs under the supplied local account.
   Numeric-library thread counts and uv concurrent builds/installations are capped.
   Run a single uvicorn worker; this is not a distributed queue.
 - Disk: each attempt checks at least 1 GiB free before installation/build.
-- Retention: terminal workspaces and their artifacts expire after seven days;
-  `BUILDER_RETENTION_DAYS` can increase retention. Startup/hourly maintenance only
+- Retention: Web user build data defaults to 30 days; `BUILDER_RETENTION_DAYS`
+  can change it. Startup/hourly maintenance removes expired build records, uploads,
+  workspaces and artifacts while preserving customer accounts and user feedback.
   removes validated managed workspace paths; active/unrecognized directories are
   preserved. Expired upload sources are removed, job summaries remain EXPIRED.
 - Recovery: persisted queued/running/repairing jobs become NEEDS_MANUAL_REVIEW on
@@ -101,8 +102,8 @@ Precedence is explicit environment override > saved SQLite value > default.
 The UI identifies overrides. Remove an override and restart to use a saved value.
 All setting environment reads are centralized in `builder/settings.py`.
 
-Allowed Hosts and retention are captured at startup; saving either displays
-“保存成功，重启 Smart Python Builder 后生效。” AI/Feishu saved configuration is
+Allowed Hosts is captured at startup and still requires restart. Retention is read
+live by automatic/manual cleanup and does not require restart. AI/Feishu saved configuration is
 read when a new build starts; an in-flight build keeps its snapshot. Connection
 tests use the current submitted fields plus stored credentials, applying the same
 environment precedence, without saving. Enabled=false prevents automatic external
@@ -150,8 +151,8 @@ Configure **Builder 访问地址** (`base_url`) under Builder settings, for exam
 `BUILDER_BASE_URL` still overrides SQLite; remove it and restart if daily management
 should use the UI. Base URL itself needs no restart: each generated notification
 reads the effective value, including later notifications of an active build.
-Only changes to Hosts/retention need restart; saving unchanged values with a new
-Base URL does not falsely require restart.
+Only changes to Allowed Hosts require restart; retention, Base URL, AI, Feishu and
+feedback-notification settings apply to subsequent requests/maintenance without restart.
 
 Listening Host selects interfaces (`0.0.0.0` binds all); Allowed Hosts validates
 request Host headers; Base URL generates externally clickable links. None guesses
