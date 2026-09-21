@@ -121,8 +121,15 @@ class AccountStore:
             raise ValueError("请输入有效邮箱地址")
         return email
 
-    def create_user(self, username: str, password: str, email: str | None = None) -> dict:
-        return self.create_managed_user(username, password, email=email)
+    def create_user(
+        self,
+        username: str,
+        password: str,
+        email: str | None = None,
+        *,
+        remaining: int = 3,
+    ) -> dict:
+        return self.create_managed_user(username, password, email=email, remaining=remaining)
 
     def create_managed_user(
         self,
@@ -321,7 +328,9 @@ class AccountStore:
             )
         return self.get_user(user_id, include_disabled=True)
 
-    def reset_quota(self, user_id: str) -> dict:
+    def reset_quota(self, user_id: str, default_free_quota: int = 3) -> dict:
+        if type(default_free_quota) is not int or not 0 <= default_free_quota <= 1_000_000:
+            raise ValueError("默认 FREE 额度必须是 0–1000000 的整数")
         with self.connect() as db:
             row = db.execute("SELECT plan FROM users WHERE id=?", (user_id,)).fetchone()
             if not row:
@@ -329,8 +338,23 @@ class AccountStore:
             if row["plan"] == "TEST":
                 db.execute("UPDATE users SET quota_used=0 WHERE id=?", (user_id,))
             else:
-                db.execute("UPDATE users SET quota_total=3, quota_used=0 WHERE id=?", (user_id,))
+                db.execute(
+                    "UPDATE users SET quota_total=?, quota_used=0 WHERE id=?",
+                    (default_free_quota, user_id),
+                )
         return self.get_user(user_id, include_disabled=True)
+
+    def top_up_free_users(self, remaining: int) -> dict:
+        if type(remaining) is not int or not 0 <= remaining <= 1_000_000:
+            raise ValueError("剩余额度必须是 0–1000000 的整数")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            count = db.execute("SELECT COUNT(*) FROM users WHERE plan='FREE'").fetchone()[0]
+            db.execute(
+                "UPDATE users SET quota_total=quota_used+? WHERE plan='FREE'",
+                (remaining,),
+            )
+        return {"updated": int(count), "remaining": remaining}
 
     def refund_build(self, user_id: str) -> dict | None:
         with self.connect() as db:
@@ -341,16 +365,18 @@ class AccountStore:
                 db.execute("UPDATE users SET quota_used=quota_used-1 WHERE id=?", (user_id,))
         return self.get_user(user_id)
 
-    def set_plan_by_id(self, user_id: str, plan: str) -> dict:
+    def set_plan_by_id(self, user_id: str, plan: str, default_free_quota: int = 3) -> dict:
         plan = (plan or "").strip().upper()
         if plan not in {"FREE", "TEST"}:
             raise ValueError("当前仅支持 FREE 或 TEST 套餐")
+        if type(default_free_quota) is not int or not 0 <= default_free_quota <= 1_000_000:
+            raise ValueError("默认 FREE 额度必须是 0–1000000 的整数")
         with self.connect() as db:
             row = db.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
             if not row:
                 raise ValueError("用户不存在")
             db.execute('UPDATE users SET plan=?, quota_total=?, quota_used=0 WHERE id=?',
-                       (plan, 0 if plan == 'TEST' else 3, user_id))
+                       (plan, 0 if plan == 'TEST' else default_free_quota, user_id))
         return self.get_user(user_id, include_disabled=True)
 
     def set_plan(self, email: str, plan: str) -> dict:
