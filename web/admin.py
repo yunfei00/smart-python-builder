@@ -70,7 +70,7 @@ def register_admin(
                 return templates.TemplateResponse(request=request, name='login.html', context={'initialized': settings.initialized(), 'error': '密码错误或管理员尚未初始化'}, status_code=401, headers={'Cache-Control': 'no-store'})
             failures.pop(address, None)
         settings.logout(request.cookies.get(COOKIE, ''))
-        response = RedirectResponse('/admin', status_code=303)
+        response = RedirectResponse('/admin/overview', status_code=303)
         response.set_cookie(COOKIE, settings.new_session(), httponly=True, samesite='lax', secure=settings.effective()['cookie_secure'], max_age=28800, path='/')
         response.headers['Cache-Control'] = 'no-store'
         return response
