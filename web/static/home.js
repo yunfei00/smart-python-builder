@@ -92,23 +92,35 @@ function showProject(next, current) {
   const details = Array.isArray(job.entry_details) ? job.entry_details : [];
   const recommended = details.filter(item => item.recommended);
   const others = details.filter(item => !item.recommended);
-  if (!job.entry) $('entry').add(new Option(recommended.length ? '请选择推荐构建程序' : '请选择程序入口', ''));
-  const addGroup = (label, items) => {
-    if (!items.length) return;
-    const group = document.createElement('optgroup');
-    group.label = label;
-    for (const item of items) {
-      const suffix = item.app_type === 'gui' ? ' · GUI' : ' · CLI';
-      group.appendChild(new Option(item.path + suffix, item.path));
+  const entryList = $('entry-list');
+  if (entryList) {
+    entryList.replaceChildren();
+    const addEntries = (label, items, checked) => {
+      if (!items.length) return;
+      const group = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = label;
+      group.appendChild(title);
+      for (const item of items) {
+        const row = document.createElement('label');
+        row.className = 'entry-choice';
+        const input = document.createElement('input');
+        input.type = 'checkbox'; input.name = 'build-entry'; input.value = item.path; input.checked = checked;
+        input.addEventListener('change', preview);
+        row.append(input, document.createTextNode(' ' + item.path + (item.app_type === 'gui' ? ' · GUI' : ' · CLI')));
+        group.appendChild(row);
+      }
+      entryList.appendChild(group);
+    };
+    if (details.length) {
+      addEntries('推荐构建程序（' + recommended.length + '）', recommended, true);
+      addEntries('其他可运行脚本（' + others.length + '）', others, false);
+    } else {
+      addEntries('程序入口', job.entries.map(path => ({path, app_type:'cli'})), job.entries.length === 1);
     }
-    $('entry').appendChild(group);
-  };
-  if (details.length) {
-    addGroup('推荐构建程序（' + recommended.length + '）', recommended);
-    addGroup('其他可运行脚本（' + others.length + '）', others);
-  } else {
-    for (const value of job.entries) $('entry').add(new Option(value, value));
   }
+  $('entry').replaceChildren();
+  for (const value of job.entries) $('entry').add(new Option(value, value));
   $('dependencies').textContent = '✓ 依赖：' + (job.dependencies.join(', ') || '无需额外依赖');
   if (details.length > 1) $('type').textContent = '✓ 检测到 ' + recommended.length + ' 个推荐构建程序，另有 ' + others.length + ' 个辅助/内部入口';
   else if (job.entries.length <= 1) $('type').textContent = '✓ 应用类型：' + (job.plan?.app_type === 'gui' ? '图形界面应用' : '控制台应用 / 待选择入口');
@@ -176,8 +188,9 @@ $('github-import').onsubmit = async event => {
 $('build').onclick = async () => {
   const current = generation;
   clearError();
-  if (!$('entry').value) {
-    showError('请先选择程序入口');
+  const selectedEntries = [...document.querySelectorAll('input[name="build-entry"]:checked')].map(input => input.value);
+  if (!selectedEntries.length) {
+    showError('请至少选择一个程序入口');
     return;
   }
   const loggedIn = Boolean(document.querySelector('meta[name="user-csrf"]')?.content);
@@ -188,7 +201,7 @@ $('build').onclick = async () => {
   }
   $('build').disabled = true;
   try {
-    const form = new FormData(); form.set('entry', $('entry').value); form.set('mode', $('mode').value);
+    const form = new FormData(); form.set('entries', selectedEntries.join('|')); form.set('mode', $('mode').value);
     await api('/api/jobs/' + job.id + '/build', {method:'POST', body:form});
     if (current !== generation) return;
     renderStatus({status:'QUEUED'});
@@ -213,9 +226,11 @@ async function poll(id, current) {
   } catch (error) { if (current === generation) showError(error.message); }
 }
 async function preview() {
-  if (!job || !$('entry').value) return;
+  if (!job) return;
+  const selected = [...document.querySelectorAll('input[name="build-entry"]:checked')].map(input => input.value);
+  if (!selected.length) return;
   try {
-    const plan = await api('/api/jobs/' + job.id + '/plan?entry=' + encodeURIComponent($('entry').value) + '&mode=' + $('mode').value);
+    const plan = await api('/api/jobs/' + job.id + '/plan?entry=' + encodeURIComponent(selected[0]) + '&mode=' + $('mode').value);
     clearError();
     $('plan').textContent = JSON.stringify(plan, null, 2); $('type').textContent = '✓ 应用类型：' + (plan.app_type === 'gui' ? '图形界面应用' : '控制台应用');
   } catch (error) { showError(error.message); }
@@ -235,7 +250,7 @@ $('cancel-build')?.addEventListener('click', async () => {
     button.textContent = '取消当前构建';
   }
 });
-$('entry').onchange = preview; $('mode').onchange = preview;
+$('mode').onchange = preview;
 $('upload-file')?.addEventListener('change', renderSelectedFile);
 renderSelectedFile();
 renderStatus({status:'READY'});
