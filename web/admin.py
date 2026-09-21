@@ -113,16 +113,15 @@ def register_admin(
         values = settings.effective()
         return values['family_free_quota'] if values['service_mode'] == 'family_free' else 3
 
-    def build_jobs():
-        jobs = runtime.get('jobs') or {}
-        return [
-            job for job in jobs.values()
-            if job.get('started_at') or job.get('status') not in {None, 'READY'}
-        ]
-
     def build_counts_by_owner():
+        analytics = runtime.get('analytics')
+        if analytics is not None:
+            return analytics.counts_by_user()
         counts = {}
-        for job in build_jobs():
+        jobs = runtime.get('jobs') or {}
+        for job in jobs.values():
+            if not job.get('started_at') and job.get('status') in {None, 'READY'}:
+                continue
             owner_id = job.get('owner_id')
             if owner_id:
                 counts[owner_id] = counts.get(owner_id, 0) + 1
@@ -231,27 +230,39 @@ def register_admin(
     @app.get('/api/admin/overview', dependencies=[Depends(admin)])
     def overview():
         jobs = list((runtime.get('jobs') or {}).values())
-        built = [
-            job for job in jobs
-            if job.get('started_at') or job.get('status') not in {None, 'READY'}
-        ]
-        today = time.localtime()
-        day_start = time.mktime((today.tm_year, today.tm_mon, today.tm_mday, 0, 0, 0, 0, 0, -1))
-        today_builds = sum(
-            (job.get('started_at') or job.get('created_at') or 0) >= day_start
-            for job in built
-        )
-        successes = sum(job.get('status') == 'SUCCESS' for job in built)
-        failures = sum(job.get('status') in {'FAILED', 'NEEDS_MANUAL_REVIEW'} for job in built)
-        completed = successes + failures
-        ai_repairs = 0
-        for job in built:
-            for attempt in job.get('attempts', []):
-                if not isinstance(attempt, dict):
-                    continue
-                repair = attempt.get('repair')
-                if isinstance(repair, dict) and repair.get('retry'):
-                    ai_repairs += 1
+        analytics = runtime.get('analytics')
+        if analytics is not None:
+            build_summary = analytics.summary()
+        else:
+            built = [
+                job for job in jobs
+                if job.get('started_at') or job.get('status') not in {None, 'READY'}
+            ]
+            today = time.localtime()
+            day_start = time.mktime((today.tm_year, today.tm_mon, today.tm_mday, 0, 0, 0, 0, 0, -1))
+            today_builds = sum(
+                (job.get('started_at') or job.get('created_at') or 0) >= day_start
+                for job in built
+            )
+            successes = sum(job.get('status') == 'SUCCESS' for job in built)
+            failures = sum(job.get('status') in {'FAILED', 'NEEDS_MANUAL_REVIEW'} for job in built)
+            completed = successes + failures
+            ai_repairs = 0
+            for job in built:
+                for attempt in job.get('attempts', []):
+                    if not isinstance(attempt, dict):
+                        continue
+                    repair = attempt.get('repair')
+                    if isinstance(repair, dict) and repair.get('retry'):
+                        ai_repairs += 1
+            build_summary = {
+                'total': len(built),
+                'today': int(today_builds),
+                'success': int(successes),
+                'failed': int(failures),
+                'success_rate': round(successes * 100 / completed, 1) if completed else None,
+                'ai_repairs': int(ai_repairs),
+            }
 
         statuses = [job.get('status') for job in jobs]
         queued = statuses.count('QUEUED')
@@ -265,14 +276,7 @@ def register_admin(
         feedback = feedback_store.summary() if feedback_store is not None else {'total': 0, 'new': 0, 'resolved': 0}
         return {
             'users': accounts.user_summary() if accounts is not None else {'total': 0, 'enabled': 0, 'free': 0, 'test': 0},
-            'builds': {
-                'total': len(built),
-                'today': int(today_builds),
-                'success': int(successes),
-                'failed': int(failures),
-                'success_rate': round(successes * 100 / completed, 1) if completed else None,
-                'ai_repairs': int(ai_repairs),
-            },
+            'builds': build_summary,
             'queue': {
                 'queued': int(queued),
                 'running': int(running),
