@@ -7,6 +7,7 @@ import uuid
 import zipfile
 import time
 import asyncio
+from datetime import datetime, timezone
 import contextlib
 import re
 import secrets
@@ -24,6 +25,7 @@ from analyzer import analyze_project
 from builder import SmartBuilder
 from builder.learning import ExperienceStore
 from builder.maintenance import cleanup_workspaces
+from builder.notifications import NotificationService
 from builder.settings import SettingsStore, allowed_hosts, environment_settings
 from .admin import register_admin
 from .security import RequestLimitsMiddleware
@@ -31,6 +33,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .uploads import MAX_UPLOAD, save_upload
 from .repositories import RepositoryImportError, clone_public_github_repository, safe_git_diagnostic
 from .accounts import AccountStore, USER_COOKIE, SESSION_SECONDS
+from .feedback import FeedbackStore
+from .maintenance import cleanup_jobs, delete_job_files
 
 
 def _allowed_hosts() -> list[str]:
@@ -42,6 +46,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     root.mkdir(parents=True, exist_ok=True)
     settings = SettingsStore(root / 'settings.sqlite3')
     accounts = AccountStore(root / 'accounts.sqlite3')
+    feedback_store = FeedbackStore(root / 'feedback.sqlite3')
     startup_settings = settings.effective()
     def make_builder():
         if builder_factory is SmartBuilder:
@@ -83,18 +88,11 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
 
     @asynccontextmanager
     async def lifespan(app):
-        retention = startup_settings['retention_days'] * 86400
         def cleanup():
+            retention = settings.effective()['retention_days'] * 86400
             cleanup_workspaces(root / 'workspace', retention_seconds=retention)
             with lock:
-                for job in jobs.values():
-                    if not (job.get('terminal') or job['status']=='READY') or time.time()-job.get('created_at',time.time())<retention:
-                        continue
-                    target = root / 'uploads' / job['id']
-                    if re.fullmatch('[a-f0-9]{32}', job['id']) and target.exists() and not target.is_symlink() and target.resolve().parent == (root/'uploads').resolve():
-                        shutil.rmtree(target.resolve())
-                    job.update(status='EXPIRED', terminal=True)
-                    persist(job)
+                cleanup_jobs(root, jobs, retention, dry_run=False)
         await asyncio.to_thread(cleanup)
         async def scheduled_cleanup():
             while True:
@@ -130,7 +128,24 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     app.state.experience_store = store
     app.state.settings = settings
     app.state.accounts = accounts
-    admin = register_admin(app, templates, settings, admin_token, ai_factory, notifier_factory, accounts=accounts)
+    app.state.feedback_store = feedback_store
+    admin = register_admin(
+        app,
+        templates,
+        settings,
+        admin_token,
+        ai_factory,
+        notifier_factory,
+        accounts=accounts,
+        runtime={
+            'jobs': jobs,
+            'root': root,
+            'futures': futures,
+            'active_builders': active_builders,
+            'lock': lock,
+        },
+        feedback_store=feedback_store,
+    )
 
     @app.get('/api/admin/experiences', dependencies=[Depends(admin)])
     def candidates():
@@ -186,31 +201,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         return job, user
 
     def remove_job_files(job):
-        job_id = job['id']
-        upload_dir = root / 'uploads' / job_id
-        if (
-            re.fullmatch('[a-f0-9]{32}', job_id)
-            and upload_dir.exists()
-            and not upload_dir.is_symlink()
-            and upload_dir.resolve().parent == (root / 'uploads').resolve()
-        ):
-            shutil.rmtree(upload_dir.resolve(), ignore_errors=True)
-
-        build_ids = {job.get('build_id')}
-        for attempt in job.get('attempts', []):
-            if isinstance(attempt, dict):
-                build_ids.add(attempt.get('build_id'))
-        workspace_root = (root / 'workspace').resolve()
-        for build_id in build_ids:
-            if not isinstance(build_id, str) or not re.fullmatch('[a-f0-9]{32}', build_id):
-                continue
-            target = workspace_root / build_id
-            if target.exists() and not target.is_symlink() and target.resolve().parent == workspace_root:
-                shutil.rmtree(target.resolve(), ignore_errors=True)
-
-        metadata = root / (job_id + '.json')
-        if metadata.exists() and metadata.resolve().parent == root:
-            metadata.unlink(missing_ok=True)
+        return delete_job_files(root, job)
 
     def import_slots(user):
         """How many additional READY jobs this account may create.
@@ -295,6 +286,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 active_builders.pop(job_id, None)
                 futures.pop(job_id, None)
                 job['terminal'] = True
+                job.setdefault('finished_at', time.time())
                 persist(job)
 
     @app.get('/', response_class=HTMLResponse)
@@ -482,6 +474,70 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             raise HTTPException(401, '请先登录')
         return {key: value for key, value in user.items() if key != 'csrf'}
 
+    @app.get('/feedback', response_class=HTMLResponse)
+    def feedback_page(request: Request):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login?next=%2Ffeedback', status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name='feedback.html',
+            context={
+                'user': user,
+                'items': feedback_store.list_for_user(user['id']),
+                'submitted': request.query_params.get('submitted') == '1',
+                'error': '',
+            },
+            headers={'Cache-Control': 'no-store'},
+        )
+
+    @app.post('/feedback')
+    def submit_feedback(
+        request: Request,
+        category: str = Form('OTHER'),
+        message: str = Form(...),
+        csrf: str = Form(...),
+    ):
+        user = account_session(request)
+        if not user:
+            return RedirectResponse('/account/login?next=%2Ffeedback', status_code=303)
+        if not secrets.compare_digest(csrf, user['csrf']):
+            raise HTTPException(403, '会话校验失败，请刷新页面')
+        try:
+            item = feedback_store.create(user, category, message)
+        except ValueError as exc:
+            return templates.TemplateResponse(
+                request=request,
+                name='feedback.html',
+                context={
+                    'user': user,
+                    'items': feedback_store.list_for_user(user['id']),
+                    'submitted': False,
+                    'error': str(exc),
+                },
+                status_code=400,
+                headers={'Cache-Control': 'no-store'},
+            )
+
+        values = settings.effective()
+        if values.get('feedback_notifications'):
+            notifications = NotificationService.configured(values)
+            if notifications.notifier is not None:
+                notifications.emit({
+                    'event': 'User Feedback',
+                    'username': user['username'],
+                    'category': item['category'],
+                    'message': item['message'][:800],
+                    'time': datetime.now(timezone.utc).isoformat(),
+                    'details_url': values['base_url'].rstrip('/') + '/admin/feedback',
+                })
+                feedback_store.set_notification_result(
+                    item['id'],
+                    notified=not notifications.failures,
+                    error=notifications.failures[0] if notifications.failures else None,
+                )
+        return RedirectResponse('/feedback?submitted=1', status_code=303)
+
     @app.post('/api/uploads')
     async def upload(request: Request, file: UploadFile = File(...)):
         user = account_session(request)
@@ -588,7 +644,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 accounts.consume_build(user['id'])
             except ValueError as exc:
                 raise HTTPException(402, str(exc)) from exc
-            job.update(status='QUEUED', terminal=False, cancel_requested=False)
+            job.update(status='QUEUED', terminal=False, cancel_requested=False, started_at=time.time())
             persist(job)
             future = pool.submit(run_job, job_id, entry, mode)
             futures[job_id] = future
@@ -631,7 +687,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             future = futures.get(job_id)
             if status == 'QUEUED' and future is not None and future.cancel():
                 futures.pop(job_id, None)
-                job.update(status='CANCELED', error='Build cancelled before execution', terminal=True)
+                job.update(status='CANCELED', error='Build cancelled before execution', terminal=True, finished_at=time.time())
                 accounts.refund_build(user['id'])
                 persist(job)
                 return {'id': job_id, 'status': 'CANCELED', 'quota_refunded': True}
