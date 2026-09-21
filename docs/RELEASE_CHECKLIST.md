@@ -22,8 +22,9 @@ uv run python tests/windows_acceptance.py
 Also verify through the Web UI: single-file build, ZIP/multi-file build, public GitHub repository import,
 a `pyproject.toml` project with a public GitHub VCS dependency, explicit entry selection, useful
 failure logs, user registration/login, username and legacy-email login, quota enforcement, READY continuation,
-administrator user management, password reset, job cancel/delete, administrator settings, and external-service
-tests when real credentials are deployed.
+administrator user management/search/filters, password reset, job cancel/delete, operations overview statistics,
+queue/disk reporting, retention cleanup preview/manual cleanup, user feedback submission/admin processing,
+administrator settings, and external-service tests when real credentials are deployed.
 
 For releases that change the account schema, back up a representative existing `accounts.sqlite3` and verify
 the automatic migration preserves user IDs, password hashes, plan/quota state, disabled state and session ownership.
