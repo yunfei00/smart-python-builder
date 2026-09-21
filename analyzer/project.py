@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Sequence
+import ast
 import re
 
 from .dependencies import imports_from_project, split_imports
