@@ -98,6 +98,30 @@ def _entry_candidates(root: Path, files: list[Path]) -> list[Path]:
     return result
 
 
+
+def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
+    rel = path.relative_to(root).as_posix()
+    name = path.stem.lower()
+    parts = {part.lower() for part in path.relative_to(root).parts}
+    auxiliary_tokens = ("smoke", "probe", "preflight", "diagnostic", "debug", "benchmark")
+    auxiliary = any(token in name for token in auxiliary_tokens)
+    internal = "src" in parts and not auxiliary
+    if auxiliary:
+        kind, confidence, recommended = "auxiliary", "low", False
+    elif internal:
+        kind, confidence, recommended = "internal", "medium", False
+    else:
+        kind, confidence, recommended = "application", "high", True
+    app_type = "gui" if any(token in name for token in ("gui", "ui", "app")) else "cli"
+    return {
+        "path": rel,
+        "kind": kind,
+        "confidence": confidence,
+        "recommended": recommended,
+        "app_type": app_type,
+    }
+
+
 def _requirements(path: Path) -> list[str]:
     packages: list[str] = []
     for raw in path.read_text(encoding="utf-8-sig").splitlines():
@@ -186,12 +210,15 @@ def analyze_project(source: Path | str) -> ProjectAnalysis:
     elif source.is_dir() and len(candidates) > 1:
         warnings.append("Multiple entry point candidates found; select one manually")
 
+    entry_details = [_entry_detail(root, path) for path in candidates]
+
     return ProjectAnalysis(
         source=source,
         project_root=root,
         python_files=files,
         entry_point=entry,
         entry_candidates=candidates,
+        entry_details=entry_details,
         imports=imports,
         stdlib_imports=stdlib_imports,
         internal_imports=internal_imports,
