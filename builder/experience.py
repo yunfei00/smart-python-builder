@@ -65,51 +65,93 @@ def _runtime_python_files(analysis: ProjectAnalysis) -> list[Path]:
     ]
 
 
-def _discover_sidecar_files(analysis: ProjectAnalysis) -> list[list[str]]:
-    """Find project files explicitly resolved relative to sys.executable.
+def _contains_sys_executable(node: ast.AST) -> bool:
+    return any(
+        isinstance(child, ast.Attribute)
+        and child.attr == "executable"
+        and isinstance(child.value, ast.Name)
+        and child.value.id == "sys"
+        for child in ast.walk(node)
+    )
 
-    These resources must remain next to the generated EXE. PyInstaller --add-data
-    alone is insufficient for one-file builds because bundled data is extracted
-    to a temporary directory instead of the executable directory.
-    """
+
+def _discover_sidecar_files(analysis: ProjectAnalysis) -> list[list[str]]:
+    """Find files that application code explicitly resolves beside sys.executable."""
     if not analysis.source.is_dir():
         return []
 
-    literals: set[str] = set()
-    uses_executable = False
+    names: set[str] = set()
+    helper_parameters: dict[str, set[str]] = {}
+
+    trees: list[ast.AST] = []
     for path in _runtime_python_files(analysis):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
         except (OSError, UnicodeError, SyntaxError):
             continue
-        file_uses_executable = any(
-            isinstance(node, ast.Attribute)
-            and node.attr == "executable"
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "sys"
-            for node in ast.walk(tree)
-        )
-        if not file_uses_executable:
-            continue
-        uses_executable = True
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                value = node.value.strip()
-                if value:
-                    literals.add(value.replace("\\", "/"))
+        trees.append(tree)
 
-    if not uses_executable:
-        return []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+                if _contains_sys_executable(node.left):
+                    if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+                        names.add(node.right.value.strip())
+                    elif isinstance(node.right, ast.Name):
+                        parent = next(
+                            (
+                                fn for fn in ast.walk(tree)
+                                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                                and node in list(ast.walk(fn))
+                            ),
+                            None,
+                        )
+                        if parent and node.right.id in {arg.arg for arg in parent.args.args}:
+                            helper_parameters.setdefault(parent.name, set()).add(node.right.id)
+
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr == "joinpath" and _contains_sys_executable(node.func.value):
+                    for arg in node.args:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            names.add(arg.value.strip())
+
+    if helper_parameters:
+        for tree in trees:
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                parameters = helper_parameters.get(node.func.id)
+                if not parameters:
+                    continue
+                definition = next(
+                    (
+                        fn for fn in ast.walk(tree)
+                        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and fn.name == node.func.id
+                    ),
+                    None,
+                )
+                if definition is None:
+                    continue
+                argument_names = [arg.arg for arg in definition.args.args]
+                for index, arg in enumerate(node.args):
+                    if index < len(argument_names) and argument_names[index] in parameters:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            names.add(arg.value.strip())
 
     result: list[list[str]] = []
-    for value in sorted(literals):
-        candidate = Path(value)
+    for value in sorted(name for name in names if name):
+        candidate = Path(value.replace("\\", "/"))
         if candidate.is_absolute() or ":" in value or ".." in candidate.parts:
             continue
         source = analysis.project_root / candidate
-        if not source.is_file() or source.is_symlink():
+        # BUILD_INFO.json is a supported generated sidecar. It is commonly
+        # created by project-specific release scripts and may not exist in source.
+        if not source.is_file():
+            if candidate.as_posix() != "BUILD_INFO.json" or not (analysis.project_root / "VERSION").is_file():
+                continue
+        elif source.is_symlink():
             continue
-        relative = source.relative_to(analysis.project_root)
+        relative = candidate
         if any(part in IGNORED_DIRS or part.startswith(".pytest-tmp") for part in relative.parts[:-1]):
             continue
         item = [relative.as_posix(), relative.parent.as_posix()]
