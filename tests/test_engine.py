@@ -8,7 +8,8 @@ import sys
 
 import pytest
 
-from builder import BuildEngine, BuildRequest
+from analyzer import analyze_project
+from builder import BuildEngine, BuildRequest, SmartBuilder
 
 
 def test_rejects_non_python_source(tmp_path: Path) -> None:
@@ -115,3 +116,34 @@ def test_plain_script_does_not_get_package_launcher(tmp_path):
     entry = tmp_path / 'main.py'
     entry.write_text('print("ok")')
     assert BuildEngine._prepare_entry(entry, tmp_path, tmp_path) == (entry, [])
+
+
+def test_sys_executable_resource_is_packaged_beside_onefile_exe(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "main.py").write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "print((Path(sys.executable).resolve().parent / 'VERSION').read_text())\n",
+        encoding="utf-8",
+    )
+    (source / "VERSION").write_text("1.2.3\n", encoding="ascii")
+
+    analysis = analyze_project(source)
+    builder = SmartBuilder(tmp_path / "workspace")
+    plan = builder.experiences.plan(analysis, analysis.entry_point)
+    assert ["VERSION", "."] in plan.sidecar_files
+    assert ["VERSION", "."] in plan.data_files
+
+    engine = BuildEngine(tmp_path / "workspace-engine")
+    monkeypatch.setattr("builder.engine.shutil.which", lambda name: "uv.exe")
+    def fake_run(command, cwd, log_file):
+        if str(command[0]).endswith("pyinstaller.exe"):
+            (cwd / "dist").mkdir(exist_ok=True)
+            (cwd / "dist" / "main.exe").write_bytes(b"test")
+    monkeypatch.setattr(engine, "_run", fake_run)
+
+    result = engine.build(BuildRequest(source, entry_point=source / "main.py", plan=plan))
+    assert result.success, result.error
+    assert result.artifact == result.workspace / "project" / "dist" / "main-package"
+    assert (result.artifact / "main.exe").is_file()
+    assert (result.artifact / "VERSION").read_text(encoding="ascii").strip() == "1.2.3"
