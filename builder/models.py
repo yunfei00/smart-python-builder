@@ -16,6 +16,7 @@ class BuildPlan:
     hidden_imports: list[str] = field(default_factory=list)
     collect_all: list[str] = field(default_factory=list)
     data_files: list[list[str]] = field(default_factory=list)
+    sidecar_files: list[list[str]] = field(default_factory=list)
     pyinstaller_args: list[str] = field(default_factory=list)
     matched_experiences: list[str] = field(default_factory=list)
     decision_sources: dict[str, str] = field(default_factory=dict)
@@ -45,7 +46,7 @@ class BuildPlan:
         for module in self.hidden_imports + self.collect_all:
             if not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*', module):
                 raise ValueError('Invalid module name')
-        for source, destination in self.data_files:
+        for source, destination in self.data_files + self.sidecar_files:
             if not inside(source).exists():
                 raise ValueError('Resource does not exist')
             inside(destination)
