@@ -113,17 +113,36 @@ second=project('learn-second',(source/'main.py').read_text())
 r=b.build(second);assert r.build.success and len(r.attempts)==1 and len(provider.contexts)==1
 record('approved experience hit',r,'Second independent project first attempt succeeds; no additional AI call')
 
-sidecar=project('sidecar-version', """import sys
+sidecar=project('sidecar-version', """import json,sys
 from pathlib import Path
-version=(Path(sys.executable).resolve().parent/'VERSION').read_text(encoding='ascii').strip()
+root=Path(sys.executable).resolve().parent
+version=(root/'VERSION').read_text(encoding='ascii').strip()
+build_info=json.loads((root/'BUILD_INFO.json').read_text(encoding='utf-8'))
+assert build_info['version']==version
 print(version)
 """)
 (sidecar/'VERSION').write_text('1.2.3\n',encoding='ascii')
+(sidecar/'app_info.py').write_text("""import sys
+from pathlib import Path
+def resource_path(name):
+    return Path(sys.executable).resolve().parent/name
+VERSION=resource_path('VERSION')
+BUILD_INFO=resource_path('BUILD_INFO.json')
+UNRELATED='main.py'
+""",encoding='utf-8')
+(sidecar/'main.py').write_text("""import json
+from app_info import VERSION,BUILD_INFO
+version=VERSION.read_text(encoding='ascii').strip()
+assert json.loads(BUILD_INFO.read_text(encoding='utf-8'))['version']==version
+print(version)
+""",encoding='utf-8')
 r=build(sidecar)
 assert r.build.artifact.is_dir(),r.build.artifact
 sidecar_exe=r.build.artifact/'main.exe'
 assert verify(sidecar_exe).strip()=='1.2.3'
-record('VERSION sidecar smoke',r,'Built EXE started successfully and read VERSION beside executable')
+assert (r.build.artifact/'BUILD_INFO.json').is_file()
+assert not (r.build.artifact/'main.py').exists()
+record('VERSION + BUILD_INFO sidecar smoke',r,'Builder smoke-ran EXE; VERSION/BUILD_INFO available; main.py not shipped')
 
 assert len(records)>=21
 print('WINDOWS ACCEPTANCE PASS:',len(records),'checks',flush=True)
