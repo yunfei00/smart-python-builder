@@ -190,7 +190,7 @@ class ExperienceEngine:
                 relative = path.relative_to(analysis.project_root)
                 if any(part in IGNORED_DIRS or part.startswith('.pytest-tmp') for part in relative.parts[:-1]):
                     continue
-                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {'.json','.png','.jpg','.jpeg','.gif','.ico','.csv','.yaml','.yml','.ui','.qss'}:
+                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {'.json','.png','.jpg','.jpeg','.gif','.ico','.csv','.yaml','.yml','.ui','.qss','.xlsx','.xls'}:
                     item = [str(relative), str(relative.parent)]
                     if item not in plan.data_files:
                         plan.data_files.append(item)
