@@ -6,6 +6,9 @@ import uuid
 import json
 import re
 import time
+import os
+import hashlib
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from .models import BuildPlan
@@ -79,6 +82,7 @@ class BuildEngine:
                 raise RuntimeError('Insufficient disk space: at least 1 GiB required')
             entry = self._copy_source(source, request.entry_point, project_dir)
             if request.plan:
+                self._materialize_generated_sidecars(request.plan, project_dir, source)
                 request.plan.validate(project_dir)
                 (workspace / "plan.json").write_text(request.plan.to_json(), encoding="utf-8")
             # Keep uploaded metadata intact; the build environment lives one level
@@ -114,6 +118,8 @@ class BuildEngine:
             if not executable.is_file() or executable.stat().st_size == 0:
                 raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
             artifact = self._stage_sidecars(artifact, executable, plan, project_dir, exe_name)
+            executable = self._artifact_executable(artifact, exe_name, mode)
+            self._smoke_test_executable(executable, plan.app_type if plan else ("gui" if request.windowed else "console"), log_file)
             success = True
             return BuildResult(build_id, True, workspace, artifact, log_file)
         except Exception as exc:
@@ -147,6 +153,7 @@ class BuildEngine:
             first = self._copy_source(source, entries[0], project_dir)
             copied_entries = [first] + [project_dir / entry.resolve().relative_to(source) for entry in entries[1:]]
             for plan in plans:
+                self._materialize_generated_sidecars(plan, project_dir, source)
                 plan.validate(project_dir)
             self._run(["uv", "init", "--bare", "--no-workspace"], workspace, log_file)
             packages = list(dict.fromkeys(dep for plan in plans for dep in plan.dependencies))
@@ -174,6 +181,8 @@ class BuildEngine:
                 if not executable.is_file() or executable.stat().st_size == 0:
                     raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
                 artifact = self._stage_sidecars(artifact, executable, plan, project_dir, exe_name)
+                executable = self._artifact_executable(artifact, exe_name, plan.mode)
+                self._smoke_test_executable(executable, plan.app_type, log_file)
                 artifacts.append(artifact)
             success = True
             return BuildResult(build_id, True, workspace, artifacts[0], log_file, artifacts=artifacts)
@@ -183,6 +192,147 @@ class BuildEngine:
             return BuildResult(build_id, False, workspace, None, log_file, str(exc))
         finally:
             marker.write_text(json.dumps(dict(status="SUCCESS" if success else "FAILED", build_id=build_id, finished_at=time.time())), encoding="utf-8")
+
+    @staticmethod
+    def _source_identity(source: Path) -> str:
+        source = source.resolve()
+        root = source if source.is_dir() else source.parent
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            commit = completed.stdout.strip().lower()
+            if re.fullmatch(r"[0-9a-f]{40}", commit):
+                return commit
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+        digest = hashlib.sha256()
+        files = [source] if source.is_file() else sorted(path for path in source.rglob("*") if path.is_file())
+        for path in files:
+            try:
+                relative = path.relative_to(root)
+            except ValueError:
+                relative = Path(path.name)
+            if any(part in {".git", ".venv", "venv", "build", "dist", "__pycache__", "workspace", "web-data"} for part in relative.parts):
+                continue
+            digest.update(relative.as_posix().encode("utf-8", errors="replace"))
+            try:
+                digest.update(path.read_bytes())
+            except OSError:
+                continue
+        return digest.hexdigest()[:40]
+
+    @classmethod
+    def _materialize_generated_sidecars(
+        cls,
+        plan: BuildPlan,
+        project_dir: Path,
+        source: Path,
+    ) -> None:
+        for source_path, _destination in plan.sidecar_files:
+            target = project_dir / source_path
+            if target.exists():
+                continue
+            if Path(source_path).as_posix() != "BUILD_INFO.json":
+                continue
+            version_path = project_dir / "VERSION"
+            if not version_path.is_file():
+                continue
+            version = version_path.read_text(encoding="ascii").strip()
+            payload = {
+                "version": version,
+                "commit": cls._source_identity(source),
+                "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "dirty": False,
+            }
+            target.write_text(
+                json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+                encoding="ascii",
+                newline="\n",
+            )
+
+    @staticmethod
+    def _artifact_executable(artifact: Path, exe_name: str, mode: str) -> Path:
+        if artifact.is_dir():
+            candidate = artifact / f"{exe_name}.exe"
+            if candidate.is_file():
+                return candidate
+        if mode == "onefile" and artifact.suffix.lower() == ".exe":
+            return artifact
+        candidate = artifact / f"{exe_name}.exe"
+        return candidate
+
+    @staticmethod
+    def _stop_smoke_process(process: subprocess.Popen) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        else:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+    @classmethod
+    def _smoke_test_executable(
+        cls,
+        executable: Path,
+        app_type: str,
+        log_file: Path,
+        startup_seconds: float = 5.0,
+    ) -> None:
+        if os.name != "nt":
+            return
+        with log_file.open("a", encoding="utf-8") as log:
+            log.write(f"\n[smoke] starting {executable}\n")
+            log.flush()
+        process = subprocess.Popen(
+            [str(executable)],
+            cwd=executable.parent,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            try:
+                stdout, stderr = process.communicate(timeout=startup_seconds)
+            except subprocess.TimeoutExpired:
+                cls._stop_smoke_process(process)
+                with log_file.open("a", encoding="utf-8") as log:
+                    log.write(f"[smoke] PASS: process stayed alive for {startup_seconds:.1f}s ({app_type})\n")
+                return
+
+            with log_file.open("a", encoding="utf-8") as log:
+                if stdout:
+                    log.write("[smoke stdout]\n" + stdout[-20000:] + "\n")
+                if stderr:
+                    log.write("[smoke stderr]\n" + stderr[-20000:] + "\n")
+                log.write(f"[smoke] exit_code={process.returncode}\n")
+
+            if process.returncode != 0:
+                detail = (stderr or stdout or "").strip()
+                if len(detail) > 2000:
+                    detail = detail[-2000:]
+                raise RuntimeError(
+                    f"Packaged executable failed startup smoke test with exit code {process.returncode}"
+                    + (f": {detail}" if detail else "")
+                )
+            # Console utilities may legitimately finish immediately with exit 0.
+        finally:
+            cls._stop_smoke_process(process)
 
     @staticmethod
     def _stage_sidecars(
