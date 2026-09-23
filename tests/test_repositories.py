@@ -54,6 +54,7 @@ def test_explicit_ref_fetches_directly_without_default_branch_clone(tmp_path, mo
     )
 
     assert result == (tmp_path / "target" / "repository").resolve()
+    assert (result / '.git').is_dir()  # Retained only for source provenance.
     assert "ls-remote" in commands[0]
     assert any("init" in command for command in commands)
     assert any(command[-2:] == ["origin", "refs/heads/feat/example"] for command in commands)

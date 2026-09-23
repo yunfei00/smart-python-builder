@@ -1,6 +1,9 @@
 import io
 import time
 import zipfile
+from pathlib import Path
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -84,3 +87,45 @@ def test_github_repository_import_uses_normal_analysis_flow(tmp_path, monkeypatc
         assert job["entry"] == "main.py"
         assert job["dependency_source"] == "pyproject.toml"
         assert job["dependencies"][1].startswith("agent @ git+https://")
+
+
+@pytest.mark.parametrize('entries', ['main.py', 'main.py|app.py'])
+def test_web_build_validates_generated_resources_before_materialization(tmp_path, monkeypatch, entries):
+    from builder.engine import BuildEngine
+    checked = []
+    def run(self, command, cwd, log_file):
+        if str(command[0]).endswith('pyinstaller.exe'):
+            name = command[command.index('--name') + 1]
+            (cwd / 'dist').mkdir(exist_ok=True)
+            (cwd / 'dist' / (name + '.exe')).write_bytes(b'exe fixture')
+    def smoke(self, executable, app_type, log_file):
+        assert executable.parent.name.endswith('-package')
+        assert (executable.parent / 'BUILD_INFO.json').is_file()
+        assert (executable.parent / 'VERSION').is_file()
+        assert not list(executable.parent.rglob('*.py'))
+        checked.append(executable.name)
+    monkeypatch.setattr(BuildEngine, '_run', run)
+    monkeypatch.setattr(BuildEngine, '_smoke_test_executable', smoke)
+    app = create_app(tmp_path)
+    app.state.settings.save({'ai_enabled': False, 'feishu_enabled': False})
+    with TestClient(app) as client:
+        client.post('/account/register', data={'username':'resource-user', 'password':'password123'})
+        session = app.state.accounts.session(client.cookies.get('builder_user'))
+        source = "from paths import resource_path\nprint(resource_path('VERSION'))\nprint(resource_path('BUILD_INFO.json'))"
+        archive = zipped({'main.py': source, 'app.py':source, 'VERSION':'0.2.0-dev',
+                          'paths.py':'import sys\nfrom pathlib import Path\ndef resource_path(name):\n    return Path(sys.executable).parent/name'})
+        job = client.post('/api/uploads', files={'file':('project.zip', archive)}).json()
+        started = client.post(f"/api/jobs/{job['id']}/build", data={'entries':entries}, headers={'X-CSRF-Token':session['csrf']})
+        assert started.status_code == 200
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            result = client.get(f"/api/jobs/{job['id']}").json()
+            if result.get('terminal'):
+                break
+            time.sleep(.02)
+        assert result['status'] == 'SUCCESS', result
+        assert sorted(checked) == sorted(Path(entry).stem + '.exe' for entry in entries.split('|'))
+        downloaded = client.get(f"/api/jobs/{job['id']}/download")
+        assert downloaded.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(downloaded.content)) as archive:
+            assert not any(name.endswith('.py') for name in archive.namelist())

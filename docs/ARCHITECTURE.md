@@ -13,7 +13,7 @@ build directory, dist directory and logs. Dependency isolation is not a security
 Python projects and dependency build backends can execute code as the Builder service account.
 
 Public GitHub import accepts HTTPS github.com owner/repository URLs, optional validated refs,
-does not recurse submodules, removes clone metadata after import and applies repository tree
+does not recurse submodules, retains clone metadata for source provenance and applies repository tree
 limits before analysis. VCS package dependencies are limited to validated
 `name @ git+https://github.com/owner/repository.git[@ref]` declarations.
 
@@ -35,3 +35,18 @@ The primary long-term modules are:
 - `web/`: FastAPI/Jinja2 application and repository import.
 - `tests/`: automated regression tests plus Windows acceptance scripts.
 - `docs/`: architecture, operations, Windows setup and release procedure.
+
+## Runtime resource lifecycle
+
+BuildPlan separates existing `data_files` / `sidecar_files` from `generated_sidecars`.
+Source validation permits only supported generated resources and checks their inputs.
+The engine validates paths before generation, creates BUILD_INFO.json from VERSION and source
+identity in the copied project, then validates with `require_generated=True`. Single and
+multi-app Web builds use this lifecycle. Missing source assets remain fatal with named paths.
+The workspace copier excludes `.git`; it never enters packaged resources. Commit lookup never
+falls through to an enclosing Builder checkout for non-Git uploads.
+
+Windows builds stage sidecars and selected static assets before smoke launch.
+Console processes must exit zero within 90 seconds; GUI processes may remain alive after five
+seconds and are then stopped with their process trees. Output is streamed to build.log. A failed
+launch, nonzero exit, generation error, or missing resource prevents download success.

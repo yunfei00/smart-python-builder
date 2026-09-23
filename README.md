@@ -217,9 +217,16 @@ Windows 密钥使用当前服务用户的 DPAPI 加密；管理员密码为 scry
 DPAPI 不提供 worker 沙箱。HTTP 不加密登录内容，仅适用于受控网络；生产网络建议 HTTPS。
 更完整说明见 [运维与安全边界](docs/OPERATIONS.md)。
 
-Web/CLI 构建成功表示已生成非空产物，并不自动运行任意用户上传程序。
-发布验收会实际运行固定测试 EXE；内部集成可通过 `artifact_validator` 回调
-将程序运行失败纳入修复。该回调只能由运维代码提供，不能由 AI 指定。
+Windows Web/CLI 构建会在资源整理完成后启动最终交付目录中的 EXE，并将输出写入 `build.log`。
+控制台程序须在 90 秒内以退出码 0 结束；GUI 观察 5 秒，非零退出判失败，持续运行则通过并结束测试进程树。
+通过日志记录 `SMOKE TEST PASS`。这项启动检查不代表所有业务功能或硬件通信已验证。
+内部集成仍可通过 `artifact_validator` 回调增加应用功能验证；该回调不能由 AI 指定。
+
+资源计划区分源码中的 `data_files` / `sidecar_files` 与 `generated_sidecars`。
+源码资源缺失会报告具体路径。明确引用但源码中不存在的 `BUILD_INFO.json` 由 Builder
+在独立 workspace 中生成，版本读取 `VERSION`，GitHub 导入保留真实提交号；生成后再次严格验证。
+需要 EXE 旁资源的 onefile 构建交付 ZIP，包含 EXE、sidecar 和选定的静态资源（包括 XLSX/XLS），
+不会因为无关字符串 `"main.py"` 自动交付源码。Git 元数据不会进入构建副本或下载包。
 
 ## 命令行与验证
 
@@ -229,6 +236,7 @@ uv run python build.py path\to\project --entry main.py
 uv run python build.py app.py --mode onedir
 uv run pytest tests -q --basetemp .pytest-tmp-check
 uv run python tests/windows_acceptance.py
+uv run python tests/windows_github_import_acceptance.py
 ```
 
 [发布检查清单](docs/RELEASE_CHECKLIST.md) 用于每次正式发布前的统一验证。

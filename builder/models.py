@@ -17,11 +17,12 @@ class BuildPlan:
     collect_all: list[str] = field(default_factory=list)
     data_files: list[list[str]] = field(default_factory=list)
     sidecar_files: list[list[str]] = field(default_factory=list)
+    generated_sidecars: list[list[str]] = field(default_factory=list)
     pyinstaller_args: list[str] = field(default_factory=list)
     matched_experiences: list[str] = field(default_factory=list)
     decision_sources: dict[str, str] = field(default_factory=dict)
 
-    def validate(self, root: Path):
+    def validate(self, root: Path, *, require_generated: bool = False):
         if self.mode not in {'onefile', 'onedir'} or self.app_type not in {'gui', 'console'}:
             raise ValueError('Invalid build mode/application type')
         root = root.resolve()
@@ -48,8 +49,17 @@ class BuildPlan:
                 raise ValueError('Invalid module name')
         for source, destination in self.data_files + self.sidecar_files:
             if not inside(source).exists():
-                raise ValueError('Resource does not exist')
+                raise ValueError(f'Missing source resource: {source}')
             inside(destination)
+        for source, destination in self.generated_sidecars:
+            target = inside(source)
+            inside(destination)
+            if source != 'BUILD_INFO.json':
+                raise ValueError(f'Unsupported generated resource: {source}')
+            if not (root / 'VERSION').is_file():
+                raise ValueError('Missing source resource: VERSION (required to generate BUILD_INFO.json)')
+            if require_generated and not target.is_file():
+                raise ValueError(f'Missing generated resource: {source}')
         allowed = {'--noupx', '--debug=imports', '--debug=all', '--log-level=DEBUG', '--log-level=INFO', '--optimize=0', '--optimize=1', '--optimize=2'}
         if any(arg not in allowed for arg in self.pyinstaller_args):
             raise ValueError('Unsupported PyInstaller argument')

@@ -82,8 +82,9 @@ class BuildEngine:
                 raise RuntimeError('Insufficient disk space: at least 1 GiB required')
             entry = self._copy_source(source, request.entry_point, project_dir)
             if request.plan:
-                self._materialize_generated_sidecars(request.plan, project_dir, source)
                 request.plan.validate(project_dir)
+                self._materialize_generated_sidecars(request.plan, project_dir, source)
+                request.plan.validate(project_dir, require_generated=True)
                 (workspace / "plan.json").write_text(request.plan.to_json(), encoding="utf-8")
             # Keep uploaded metadata intact; the build environment lives one level
             # above the copied project and never installs the project itself.
@@ -102,7 +103,7 @@ class BuildEngine:
                     command.extend(["--hidden-import", value])
                 for value in plan.collect_all:
                     command.extend(["--collect-all", value])
-                for source_path, destination in plan.data_files:
+                for source_path, destination in plan.data_files + plan.generated_sidecars:
                     command.extend(["--add-data", f"{source_path};{destination}"])
                 command.extend(plan.pyinstaller_args)
             is_windowed = plan.app_type == "gui" if plan else request.windowed
@@ -153,8 +154,9 @@ class BuildEngine:
             first = self._copy_source(source, entries[0], project_dir)
             copied_entries = [first] + [project_dir / entry.resolve().relative_to(source) for entry in entries[1:]]
             for plan in plans:
-                self._materialize_generated_sidecars(plan, project_dir, source)
                 plan.validate(project_dir)
+                self._materialize_generated_sidecars(plan, project_dir, source)
+                plan.validate(project_dir, require_generated=True)
             self._run(["uv", "init", "--bare", "--no-workspace"], workspace, log_file)
             packages = list(dict.fromkeys(dep for plan in plans for dep in plan.dependencies))
             if packages:
@@ -168,7 +170,7 @@ class BuildEngine:
                     command.extend(["--hidden-import", value])
                 for value in plan.collect_all:
                     command.extend(["--collect-all", value])
-                for source_path, destination in plan.data_files:
+                for source_path, destination in plan.data_files + plan.generated_sidecars:
                     command.extend(["--add-data", f"{source_path};{destination}"])
                 command.extend(plan.pyinstaller_args)
                 if plan.app_type == "gui":
@@ -198,6 +200,8 @@ class BuildEngine:
         source = source.resolve()
         root = source if source.is_dir() else source.parent
         try:
+            if not (root / '.git').exists():
+                raise FileNotFoundError('Source is not a Git checkout')
             completed = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=root,
@@ -235,16 +239,18 @@ class BuildEngine:
         project_dir: Path,
         source: Path,
     ) -> None:
-        for source_path, _destination in plan.sidecar_files:
+        for source_path, _destination in plan.generated_sidecars:
             target = project_dir / source_path
             if target.exists():
                 continue
-            if Path(source_path).as_posix() != "BUILD_INFO.json":
-                continue
+            if source_path != "BUILD_INFO.json":
+                raise ValueError(f'Unsupported generated resource: {source_path}')
             version_path = project_dir / "VERSION"
             if not version_path.is_file():
-                continue
+                raise ValueError('Missing source resource: VERSION (required to generate BUILD_INFO.json)')
             version = version_path.read_text(encoding="ascii").strip()
+            if not version:
+                raise ValueError('Empty source resource: VERSION')
             payload = {
                 "version": version,
                 "commit": cls._source_identity(source),
@@ -275,16 +281,17 @@ class BuildEngine:
         if os.name == "nt":
             subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True,
-                text=True,
-                timeout=10,
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
         else:
             process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+            raise RuntimeError('Smoke test process tree did not stop cleanly')
 
     @classmethod
     def _smoke_test_executable(
@@ -293,46 +300,35 @@ class BuildEngine:
         app_type: str,
         log_file: Path,
         startup_seconds: float = 5.0,
+        console_seconds: float = 90.0,
     ) -> None:
         if os.name != "nt":
             return
+        # Write directly to the log: no pipe buffer deadlock, lost timeout output,
+        # or locale decoding failure can hide an application's startup error.
         with log_file.open("a", encoding="utf-8") as log:
-            log.write(f"\n[smoke] starting {executable}\n")
+            log.write(f"\n[smoke] starting {executable} (cwd={executable.parent})\n")
             log.flush()
-        process = subprocess.Popen(
-            [str(executable)],
-            cwd=executable.parent,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
+            process = subprocess.Popen(
+                [str(executable)], cwd=executable.parent,
+                stdout=log, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
             try:
-                stdout, stderr = process.communicate(timeout=startup_seconds)
-            except subprocess.TimeoutExpired:
+                try:
+                    code = process.wait(timeout=startup_seconds if app_type == 'gui' else console_seconds)
+                except subprocess.TimeoutExpired:
+                    cls._stop_smoke_process(process)
+                    if app_type != 'gui':
+                        raise RuntimeError(f'Console smoke test timed out: {executable}')
+                    log.write(f"SMOKE TEST PASS: GUI stayed alive for {startup_seconds:.1f}s; process tree stopped\n")
+                    return
+                log.write(f"[smoke] exit_code={code}\n")
+                if code != 0:
+                    raise RuntimeError(f'Packaged executable failed startup smoke test with exit code {code}: {executable}; see {log_file}')
+                log.write("SMOKE TEST PASS: exit code 0\n")
+            finally:
                 cls._stop_smoke_process(process)
-                with log_file.open("a", encoding="utf-8") as log:
-                    log.write(f"[smoke] PASS: process stayed alive for {startup_seconds:.1f}s ({app_type})\n")
-                return
-
-            with log_file.open("a", encoding="utf-8") as log:
-                if stdout:
-                    log.write("[smoke stdout]\n" + stdout[-20000:] + "\n")
-                if stderr:
-                    log.write("[smoke stderr]\n" + stderr[-20000:] + "\n")
-                log.write(f"[smoke] exit_code={process.returncode}\n")
-
-            if process.returncode != 0:
-                detail = (stderr or stdout or "").strip()
-                if len(detail) > 2000:
-                    detail = detail[-2000:]
-                raise RuntimeError(
-                    f"Packaged executable failed startup smoke test with exit code {process.returncode}"
-                    + (f": {detail}" if detail else "")
-                )
-            # Console utilities may legitimately finish immediately with exit 0.
-        finally:
-            cls._stop_smoke_process(process)
 
     @staticmethod
     def _stage_sidecars(
@@ -342,7 +338,7 @@ class BuildEngine:
         project_dir: Path,
         exe_name: str,
     ) -> Path:
-        if not plan or not plan.sidecar_files:
+        if not plan or not (plan.sidecar_files or plan.generated_sidecars):
             return artifact
 
         if plan.mode == "onefile":
@@ -354,7 +350,10 @@ class BuildEngine:
         else:
             package_dir = artifact
 
-        for source_path, destination in plan.sidecar_files:
+        # A deliverable already requiring a directory should expose its selected
+        # static assets too (editable YAML/Excel configs), preserving their paths.
+        resources = list(dict.fromkeys(tuple(item) for item in plan.data_files + plan.sidecar_files + plan.generated_sidecars))
+        for source_path, destination in resources:
             source = project_dir / source_path
             target_dir = package_dir / destination
             target_dir.mkdir(parents=True, exist_ok=True)

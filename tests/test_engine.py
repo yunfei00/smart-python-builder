@@ -150,7 +150,9 @@ print(json.loads(BUILD_INFO_PATH.read_text(encoding="utf-8"))["version"])
     plan = builder.experiences.plan(analysis, analysis.entry_point)
 
     assert ["VERSION", "."] in plan.sidecar_files
-    assert ["BUILD_INFO.json", "."] in plan.sidecar_files
+    assert ["BUILD_INFO.json", "."] in plan.generated_sidecars
+    assert ["BUILD_INFO.json", "."] not in plan.data_files + plan.sidecar_files
+    plan.validate(source)
     assert all(item[0] != "main.py" for item in plan.sidecar_files)
 
     engine = BuildEngine(tmp_path / "workspace-engine")

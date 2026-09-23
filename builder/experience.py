@@ -92,6 +92,12 @@ def _discover_sidecar_files(analysis: ProjectAnalysis) -> list[list[str]]:
         trees.append(tree)
 
         for node in ast.walk(tree):
+            # A conventional resource helper may be imported from another module
+            # or resolve through an application_root helper. Only its actual
+            # literal argument is a resource, never unrelated string constants.
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'resource_path':
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    names.add(node.args[0].value)
             if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
                 if _contains_sys_executable(node.left):
                     if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
@@ -141,15 +147,12 @@ def _discover_sidecar_files(analysis: ProjectAnalysis) -> list[list[str]]:
     result: list[list[str]] = []
     for value in sorted(name for name in names if name):
         candidate = Path(value.replace("\\", "/"))
-        if candidate.is_absolute() or ":" in value or ".." in candidate.parts:
+        if not candidate.parts or candidate.is_absolute() or ":" in value or ".." in candidate.parts:
             continue
         source = analysis.project_root / candidate
         # BUILD_INFO.json is a supported generated sidecar. It is commonly
         # created by project-specific release scripts and may not exist in source.
-        if not source.is_file():
-            if candidate.as_posix() != "BUILD_INFO.json" or not (analysis.project_root / "VERSION").is_file():
-                continue
-        elif source.is_symlink():
+        if source.is_symlink():
             continue
         relative = candidate
         if any(part in IGNORED_DIRS or part.startswith(".pytest-tmp") for part in relative.parts[:-1]):
@@ -188,7 +191,7 @@ class ExperienceEngine:
         if analysis.source.is_dir():
             for path in analysis.project_root.rglob('*'):
                 relative = path.relative_to(analysis.project_root)
-                if any(part in IGNORED_DIRS or part.startswith('.pytest-tmp') for part in relative.parts[:-1]):
+                if any(part in IGNORED_DIRS | {'.github', 'tests', 'test'} or part.startswith('.pytest-tmp') for part in relative.parts[:-1]):
                     continue
                 if path.is_file() and not path.is_symlink() and path.suffix.lower() in {'.json','.png','.jpg','.jpeg','.gif','.ico','.csv','.yaml','.yml','.ui','.qss','.xlsx','.xls'}:
                     item = [str(relative), str(relative.parent)]
@@ -196,6 +199,9 @@ class ExperienceEngine:
                         plan.data_files.append(item)
             sidecars = _discover_sidecar_files(analysis)
             for item in sidecars:
+                if item[0] == 'BUILD_INFO.json' and not (analysis.project_root / item[0]).exists():
+                    plan.generated_sidecars.append(item)
+                    continue
                 if item not in plan.sidecar_files:
                     plan.sidecar_files.append(item)
                 if item not in plan.data_files:
@@ -204,4 +210,6 @@ class ExperienceEngine:
                 plan.decision_sources['data_files'] = 'project resource files'
             if plan.sidecar_files:
                 plan.decision_sources['sidecar_files'] = 'sys.executable-relative project resources'
+            if plan.generated_sidecars:
+                plan.decision_sources['generated_sidecars'] = 'Builder-generated runtime metadata'
         return self.store.apply(analysis, plan) if self.store else plan

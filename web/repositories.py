@@ -207,5 +207,6 @@ def clone_public_github_repository(url: str, target: Path, ref: str | None = Non
     run(["git", "-C", str(project), "checkout", "--detach", revision], "checkout")
 
     _check_repository_tree(project)
-    shutil.rmtree(project / ".git", ignore_errors=True)
+    # Retain checkout provenance for BUILD_INFO.json. Analysis and the build
+    # workspace copier exclude .git, so it never enters delivered artifacts.
     return project
