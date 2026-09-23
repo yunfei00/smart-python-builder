@@ -112,5 +112,18 @@ b.experience_store.review(r.candidate_id,'APPROVED')
 second=project('learn-second',(source/'main.py').read_text())
 r=b.build(second);assert r.build.success and len(r.attempts)==1 and len(provider.contexts)==1
 record('approved experience hit',r,'Second independent project first attempt succeeds; no additional AI call')
-assert len(records)>=20
+
+sidecar=project('sidecar-version', """import sys
+from pathlib import Path
+version=(Path(sys.executable).resolve().parent/'VERSION').read_text(encoding='ascii').strip()
+print(version)
+""")
+(sidecar/'VERSION').write_text('1.2.3\n',encoding='ascii')
+r=build(sidecar)
+assert r.build.artifact.is_dir(),r.build.artifact
+sidecar_exe=r.build.artifact/'main.exe'
+assert verify(sidecar_exe).strip()=='1.2.3'
+record('VERSION sidecar smoke',r,'Built EXE started successfully and read VERSION beside executable')
+
+assert len(records)>=21
 print('WINDOWS ACCEPTANCE PASS:',len(records),'checks',flush=True)
