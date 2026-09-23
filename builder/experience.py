@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+import ast
 
 from analyzer.models import ProjectAnalysis
 from .models import BuildPlan
@@ -54,6 +55,69 @@ PROFILES = tuple(replace(profile, known_errors=(KnownError(
 ),)) for profile in PROFILES)
 
 
+def _runtime_python_files(analysis: ProjectAnalysis) -> list[Path]:
+    return [
+        path for path in analysis.python_files
+        if not {"tests", "test"} & set(path.relative_to(analysis.project_root).parts[:-1])
+        and not path.name.startswith("test_")
+        and not path.name.endswith("_test.py")
+        and path.name != "conftest.py"
+    ]
+
+
+def _discover_sidecar_files(analysis: ProjectAnalysis) -> list[list[str]]:
+    """Find project files explicitly resolved relative to sys.executable.
+
+    These resources must remain next to the generated EXE. PyInstaller --add-data
+    alone is insufficient for one-file builds because bundled data is extracted
+    to a temporary directory instead of the executable directory.
+    """
+    if not analysis.source.is_dir():
+        return []
+
+    literals: set[str] = set()
+    uses_executable = False
+    for path in _runtime_python_files(analysis):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        except (OSError, UnicodeError, SyntaxError):
+            continue
+        file_uses_executable = any(
+            isinstance(node, ast.Attribute)
+            and node.attr == "executable"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "sys"
+            for node in ast.walk(tree)
+        )
+        if not file_uses_executable:
+            continue
+        uses_executable = True
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                value = node.value.strip()
+                if value:
+                    literals.add(value.replace("\\", "/"))
+
+    if not uses_executable:
+        return []
+
+    result: list[list[str]] = []
+    for value in sorted(literals):
+        candidate = Path(value)
+        if candidate.is_absolute() or ":" in value or ".." in candidate.parts:
+            continue
+        source = analysis.project_root / candidate
+        if not source.is_file() or source.is_symlink():
+            continue
+        relative = source.relative_to(analysis.project_root)
+        if any(part in IGNORED_DIRS or part.startswith(".pytest-tmp") for part in relative.parts[:-1]):
+            continue
+        item = [relative.as_posix(), relative.parent.as_posix()]
+        if item not in result:
+            result.append(item)
+    return result
+
+
 class ExperienceEngine:
     def __init__(self, profiles=PROFILES, store=None):
         self.profiles = profiles
@@ -88,6 +152,14 @@ class ExperienceEngine:
                     item = [str(relative), str(relative.parent)]
                     if item not in plan.data_files:
                         plan.data_files.append(item)
+            sidecars = _discover_sidecar_files(analysis)
+            for item in sidecars:
+                if item not in plan.sidecar_files:
+                    plan.sidecar_files.append(item)
+                if item not in plan.data_files:
+                    plan.data_files.append(item)
             if plan.data_files:
                 plan.decision_sources['data_files'] = 'project resource files'
+            if plan.sidecar_files:
+                plan.decision_sources['sidecar_files'] = 'sys.executable-relative project resources'
         return self.store.apply(analysis, plan) if self.store else plan
