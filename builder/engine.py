@@ -113,6 +113,7 @@ class BuildEngine:
             executable = artifact / f'{exe_name}.exe' if mode == 'onedir' else artifact
             if not executable.is_file() or executable.stat().st_size == 0:
                 raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
+            artifact = self._stage_sidecars(artifact, executable, plan, project_dir, exe_name)
             success = True
             return BuildResult(build_id, True, workspace, artifact, log_file)
         except Exception as exc:
@@ -172,6 +173,7 @@ class BuildEngine:
                 executable = artifact / f"{exe_name}.exe" if plan.mode == "onedir" else artifact
                 if not executable.is_file() or executable.stat().st_size == 0:
                     raise RuntimeError(f"PyInstaller finished but artifact is missing: {artifact}")
+                artifact = self._stage_sidecars(artifact, executable, plan, project_dir, exe_name)
                 artifacts.append(artifact)
             success = True
             return BuildResult(build_id, True, workspace, artifacts[0], log_file, artifacts=artifacts)
@@ -181,6 +183,38 @@ class BuildEngine:
             return BuildResult(build_id, False, workspace, None, log_file, str(exc))
         finally:
             marker.write_text(json.dumps(dict(status="SUCCESS" if success else "FAILED", build_id=build_id, finished_at=time.time())), encoding="utf-8")
+
+    @staticmethod
+    def _stage_sidecars(
+        artifact: Path,
+        executable: Path,
+        plan: BuildPlan | None,
+        project_dir: Path,
+        exe_name: str,
+    ) -> Path:
+        if not plan or not plan.sidecar_files:
+            return artifact
+
+        if plan.mode == "onefile":
+            package_dir = artifact.parent / f"{exe_name}-package"
+            if package_dir.exists():
+                shutil.rmtree(package_dir)
+            package_dir.mkdir(parents=True)
+            shutil.move(str(executable), package_dir / executable.name)
+        else:
+            package_dir = artifact
+
+        for source_path, destination in plan.sidecar_files:
+            source = project_dir / source_path
+            target_dir = package_dir / destination
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / source.name
+            if source.is_dir():
+                shutil.copytree(source, target, dirs_exist_ok=True)
+            else:
+                shutil.copy2(source, target)
+
+        return package_dir
 
     @staticmethod
     def _prepare_entry(entry: Path, project_dir: Path, workspace: Path) -> tuple[Path, list[str]]:
