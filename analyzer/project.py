@@ -128,10 +128,75 @@ def _entry_app_type(path: Path) -> str:
     return "cli"
 
 
+def _entry_requires_arguments(path: Path) -> bool:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    except (OSError, UnicodeError, SyntaxError):
+        return False
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "add_argument":
+            continue
+        if any(
+            keyword.arg == "required"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is True
+            for keyword in node.keywords
+        ):
+            return True
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            option = node.args[0].value
+            if option and not option.startswith("-"):
+                return True
+    return False
+
+
+def _entry_is_service(path: Path) -> bool:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    except (OSError, UnicodeError, SyntaxError):
+        return False
+
+    service_modules = {"fastapi", "flask"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".", 1)[0].lower() in service_modules for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".", 1)[0].lower() in service_modules:
+                return True
+        elif isinstance(node, ast.Call):
+            func = node.func
+            call_name = (
+                func.id if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute)
+                else ""
+            )
+            if call_name in {"FastAPI", "Flask"}:
+                return True
+    return False
+
+
+def _looks_like_library_demo(root: Path, path: Path) -> bool:
+    relative = path.relative_to(root)
+    if len(relative.parts) != 1:
+        return False
+    sibling_package = root / path.stem
+    return sibling_package.is_dir() and (sibling_package / "__init__.py").is_file()
+
+
 def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
     rel = path.relative_to(root).as_posix()
     name = path.stem.lower()
     parts = {part.lower() for part in path.relative_to(root).parts}
+    app_type = _entry_app_type(path)
+    requires_arguments = app_type == "cli" and _entry_requires_arguments(path)
+    service = _entry_is_service(path)
+    library_demo = _looks_like_library_demo(root, path)
+
     auxiliary_tokens = (
         "smoke", "probe", "preflight", "diagnostic", "debug", "benchmark",
         "check", "verify", "validate", "audit", "qualify",
@@ -139,28 +204,33 @@ def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
     utility_dirs = {"tools", "tool", "packaging", "examples", "example"}
     auxiliary_names = {"eval", "evaluate", "train", "training", "manage"}
     auxiliary_prefixes = (
-        "build_", "prepare_", "generate_", "clean_", "migrate_", "seed_",
+        "build_", "prepare_", "generate_", "clean_", "migrate_", "seed_", "manual_",
     )
     auxiliary = (
         any(token in name for token in auxiliary_tokens)
         or name in auxiliary_names
         or name.startswith(auxiliary_prefixes)
         or bool(parts & utility_dirs)
+        or library_demo
     )
     internal = "src" in parts and not auxiliary
-    if auxiliary:
+
+    if service:
+        kind, confidence, recommended = "service", "high", False
+    elif auxiliary:
         kind, confidence, recommended = "auxiliary", "low", False
     elif internal:
         kind, confidence, recommended = "internal", "medium", False
     else:
-        kind, confidence, recommended = "application", "high", True
-    app_type = _entry_app_type(path)
+        kind, confidence, recommended = "application", "high", not requires_arguments
+
     return {
         "path": rel,
         "kind": kind,
         "confidence": confidence,
         "recommended": recommended,
         "app_type": app_type,
+        "requires_arguments": requires_arguments,
     }
 
 
