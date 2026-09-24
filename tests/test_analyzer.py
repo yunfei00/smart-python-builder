@@ -302,3 +302,32 @@ if __name__ == "__main__":
 """)
     result = analyze_project(tmp_path)
     assert result.entry_details[0]["app_type"] == "gui"
+
+
+
+def test_tools_and_packaging_entries_are_auxiliary(tmp_path):
+    write(tmp_path / "tools" / "capture_scope.py", """
+def main():
+    return 0
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "packaging" / "release_helper.py", """
+def main():
+    return 0
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "scripts" / "run_gui.py", """
+def main():
+    return 0
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    result = analyze_project(tmp_path)
+    details = {item["path"]: item for item in result.entry_details}
+    assert details["tools/capture_scope.py"]["kind"] == "auxiliary"
+    assert details["tools/capture_scope.py"]["recommended"] is False
+    assert details["packaging/release_helper.py"]["kind"] == "auxiliary"
+    assert details["packaging/release_helper.py"]["recommended"] is False
+    assert details["scripts/run_gui.py"]["recommended"] is True

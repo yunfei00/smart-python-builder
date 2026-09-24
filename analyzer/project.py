@@ -136,7 +136,11 @@ def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
         "smoke", "probe", "preflight", "diagnostic", "debug", "benchmark",
         "check", "verify", "validate", "audit", "qualify",
     )
-    auxiliary = any(token in name for token in auxiliary_tokens)
+    utility_dirs = {"tools", "tool", "packaging", "examples", "example"}
+    auxiliary = (
+        any(token in name for token in auxiliary_tokens)
+        or bool(parts & utility_dirs)
+    )
     internal = "src" in parts and not auxiliary
     if auxiliary:
         kind, confidence, recommended = "auxiliary", "low", False
