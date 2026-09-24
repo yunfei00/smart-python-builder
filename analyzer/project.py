@@ -137,8 +137,14 @@ def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
         "check", "verify", "validate", "audit", "qualify",
     )
     utility_dirs = {"tools", "tool", "packaging", "examples", "example"}
+    auxiliary_names = {"eval", "evaluate", "train", "training", "manage"}
+    auxiliary_prefixes = (
+        "build_", "prepare_", "generate_", "clean_", "migrate_", "seed_",
+    )
     auxiliary = (
         any(token in name for token in auxiliary_tokens)
+        or name in auxiliary_names
+        or name.startswith(auxiliary_prefixes)
         or bool(parts & utility_dirs)
     )
     internal = "src" in parts and not auxiliary
@@ -166,6 +172,21 @@ def _requirements(path: Path) -> list[str]:
             continue
         packages.append(line)
     return packages
+
+
+def _single_nested_metadata(root: Path, filename: str) -> Path | None:
+    candidates: list[Path] = []
+    for path in root.rglob(filename):
+        relative = path.relative_to(root)
+        lowered = {part.lower() for part in relative.parts[:-1]}
+        if (
+            any(part in IGNORED_DIRS or part.startswith(".pytest-tmp") for part in relative.parts[:-1])
+            or {"tests", "test"} & lowered
+        ):
+            continue
+        if path.is_file() and not path.is_symlink():
+            candidates.append(path)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _pyproject_dependencies(path: Path, imported_packages: Sequence[str] = ()) -> list[str] | None:
@@ -220,26 +241,39 @@ def analyze_project(source: Path | str) -> ProjectAnalysis:
     stdlib_imports, internal_imports, third_party = split_imports(imports, internal)
     warnings: list[str] = []
 
-    pyproject = root / "pyproject.toml"
-    requirements = root / "requirements.txt"
+    root_pyproject = root / "pyproject.toml"
+    root_requirements = root / "requirements.txt"
+    pyproject = (
+        root_pyproject
+        if root_pyproject.exists()
+        else _single_nested_metadata(root, "pyproject.toml")
+    )
+    requirements = (
+        root_requirements
+        if root_requirements.exists()
+        else _single_nested_metadata(root, "requirements.txt")
+    )
     runtime_files = [path for path in files
                      if not {'tests', 'test'} & set(path.relative_to(root).parts[:-1])
                      and not path.name.startswith('test_') and not path.name.endswith('_test.py')
                      and path.name != 'conftest.py']
     runtime_imports = imports_from_project(runtime_files) & third_party
-    declared = _pyproject_dependencies(pyproject, resolve_packages(runtime_imports)) if pyproject.exists() else None
+    declared = _pyproject_dependencies(pyproject, resolve_packages(runtime_imports)) if pyproject else None
     if declared is not None:
         packages = declared
-        dependency_source = "pyproject.toml"
-    elif requirements.exists():
+        dependency_source = pyproject.relative_to(root).as_posix()
+    elif requirements:
         packages = _requirements(requirements)
-        dependency_source = "requirements.txt"
+        dependency_source = requirements.relative_to(root).as_posix()
     else:
         packages = resolve_packages(third_party)
         dependency_source = "ast"
 
-    if pyproject.exists() and declared is None:
-        warnings.append(f"pyproject.toml has no readable [project].dependencies; used {dependency_source} fallback")
+    if pyproject and declared is None:
+        warnings.append(
+            f"{pyproject.relative_to(root).as_posix()} has no readable "
+            f"[project].dependencies; used {dependency_source} fallback"
+        )
 
     if source.is_dir() and not candidates:
         warnings.append("No conventional entry point found; select an entry file manually")

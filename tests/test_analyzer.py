@@ -18,6 +18,11 @@ def test_package_mapping():
     assert resolve_package("serial") == "pyserial"
     assert resolve_package("sklearn") == "scikit-learn"
     assert resolve_package("bs4") == "beautifulsoup4"
+    assert resolve_package("ruamel") == "ruamel.yaml"
+    assert resolve_package("rest_framework") == "djangorestframework"
+    assert resolve_package("django_filters") == "django-filter"
+    assert resolve_package("drf_spectacular") == "drf-spectacular"
+    assert resolve_package("dotenv") == "python-dotenv"
     assert resolve_package("requests") == "requests"
 
 
@@ -331,3 +336,57 @@ if __name__ == "__main__":
     assert details["packaging/release_helper.py"]["kind"] == "auxiliary"
     assert details["packaging/release_helper.py"]["recommended"] is False
     assert details["scripts/run_gui.py"]["recommended"] is True
+
+
+
+def test_unique_nested_requirements_are_used(tmp_path):
+    write(tmp_path / "apps" / "api" / "manage.py", "import django\n")
+    write(
+        tmp_path / "apps" / "api" / "requirements.txt",
+        "Django==5.2\ndjangorestframework>=3.15\n",
+    )
+    result = analyze_project(tmp_path)
+    assert result.dependency_source == "apps/api/requirements.txt"
+    assert result.packages == ["Django==5.2", "djangorestframework>=3.15"]
+
+
+def test_unique_nested_pyproject_is_used(tmp_path):
+    write(tmp_path / "backend" / "manage.py", "import django\nimport rest_framework\n")
+    write(
+        tmp_path / "backend" / "pyproject.toml",
+        '[project]\nname="backend"\nversion="0.1.0"\n'
+        'dependencies=["Django>=5", "djangorestframework>=3.15"]\n',
+    )
+    result = analyze_project(tmp_path)
+    assert result.dependency_source == "backend/pyproject.toml"
+    assert result.packages == ["Django>=5", "djangorestframework>=3.15"]
+
+
+def test_multiple_nested_metadata_files_do_not_guess(tmp_path):
+    write(tmp_path / "one" / "main.py", "import requests\n")
+    write(tmp_path / "one" / "requirements.txt", "requests==2.32.5\n")
+    write(tmp_path / "two" / "requirements.txt", "Pillow\n")
+    result = analyze_project(tmp_path)
+    assert result.dependency_source == "ast"
+    assert result.packages == ["requests"]
+
+
+def test_ml_and_project_maintenance_scripts_are_auxiliary(tmp_path):
+    scripts = [
+        "eval.py",
+        "train.py",
+        "build_model_package.py",
+        "clean_pycache.py",
+        "manage.py",
+    ]
+    for script in scripts:
+        write(
+            tmp_path / script,
+            "def main():\n    return 0\n"
+            "if __name__ == '__main__':\n    raise SystemExit(main())\n",
+        )
+    result = analyze_project(tmp_path)
+    details = {item["path"]: item for item in result.entry_details}
+    for script in scripts:
+        assert details[script]["kind"] == "auxiliary"
+        assert details[script]["recommended"] is False

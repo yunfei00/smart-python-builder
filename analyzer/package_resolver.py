@@ -7,7 +7,16 @@ PACKAGE_MAP: dict[str, str] = {
     "PIL": "Pillow",
     "serial": "pyserial",
     "sklearn": "scikit-learn",
+    "skimage": "scikit-image",
     "yaml": "PyYAML",
+    "ruamel": "ruamel.yaml",
+    "rest_framework": "djangorestframework",
+    "django_filters": "django-filter",
+    "drf_spectacular": "drf-spectacular",
+    "dotenv": "python-dotenv",
+    "usb": "pyusb",
+    "win32api": "pywin32",
+    "win32com": "pywin32",
 }
 
 
