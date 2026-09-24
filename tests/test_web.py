@@ -129,3 +129,62 @@ def test_web_build_validates_generated_resources_before_materialization(tmp_path
         assert downloaded.status_code == 200
         with zipfile.ZipFile(io.BytesIO(downloaded.content)) as archive:
             assert not any(name.endswith('.py') for name in archive.namelist())
+
+
+def test_nested_windows_entry_paths_are_normalized_for_build(tmp_path, monkeypatch):
+    from builder.engine import BuildEngine
+
+    def fake_run(self, command, cwd, log_file):
+        if str(command[0]).endswith("pyinstaller.exe"):
+            name = command[command.index("--name") + 1]
+            (cwd / "dist").mkdir(exist_ok=True)
+            (cwd / "dist" / (name + ".exe")).write_bytes(b"exe fixture")
+
+    monkeypatch.setattr(BuildEngine, "_run", fake_run)
+    monkeypatch.setattr(BuildEngine, "_smoke_test_executable", lambda *args, **kwargs: None)
+
+    app = create_app(tmp_path)
+    app.state.settings.save({"ai_enabled": False, "feishu_enabled": False})
+
+    with TestClient(app) as client:
+        client.post(
+            "/account/register",
+            data={"username": "nested-entry-user", "password": "password123"},
+        )
+        session = app.state.accounts.session(client.cookies.get("builder_user"))
+        headers = {"X-CSRF-Token": session["csrf"]}
+
+        archive = zipped({
+            "src/Instruments Capture Studio UI APP.py":
+                "def main():\n    print('app')\n\nif __name__ == '__main__':\n    main()\n",
+            "scripts/Run GUI.py":
+                "def main():\n    print('gui')\n\nif __name__ == '__main__':\n    main()\n",
+        })
+        job = client.post(
+            "/api/uploads",
+            files={"file": ("instrument-capture-studio.zip", archive)},
+        ).json()
+
+        assert "src/Instruments Capture Studio UI APP.py" in job["entries"]
+        assert "scripts/Run GUI.py" in job["entries"]
+        assert all("\\" not in entry for entry in job["entries"])
+
+        preview = client.get(
+            f"/api/jobs/{job['id']}/plan",
+            params={"entry": "src/Instruments Capture Studio UI APP.py", "mode": "onefile"},
+        )
+        assert preview.status_code == 200, preview.text
+
+        # Simulate a READY job created by an older Windows build where entries
+        # were persisted with backslashes. The current API must still accept
+        # the POSIX path emitted by entry_details/the browser.
+        app.state.jobs[job["id"]]["entries"] = [
+            "src\\Instruments Capture Studio UI APP.py",
+            "scripts\\Run GUI.py",
+        ]
+        started = client.post(
+            f"/api/jobs/{job['id']}/build",
+            data={"entries": "src/Instruments Capture Studio UI APP.py", "mode": "onefile"},
+            headers=headers,
+        )
+        assert started.status_code == 200, started.text
