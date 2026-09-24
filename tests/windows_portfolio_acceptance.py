@@ -43,36 +43,36 @@ def repository_name(url: str) -> str:
 
 def choose_entries(job: dict) -> list[str]:
     details = job.get("entry_details") or []
-    entries = job.get("entries") or []
 
     recommended = [
         item["path"]
         for item in details
-        if item.get("recommended") and item.get("kind") == "application"
+        if (
+            item.get("recommended")
+            and item.get("kind") == "application"
+            and not item.get("requires_arguments")
+        )
     ]
     if recommended:
-        # One representative application is enough for portfolio-wide packaging;
-        # Instrument Capture Studio gets two to keep multi-entry behavior covered.
-        limit = 2 if job.get("project_name") == "instrument-capture-studio" else 1
-        return recommended[:limit]
+        return recommended[:1]
 
+    # A packaged GUI/main module inside src is a valid fallback when the repo
+    # has no external launcher. Prefer GUI over CLI and never auto-run entries
+    # that need mandatory command-line arguments.
     internal = [
         item["path"]
-        for item in details
-        if item.get("kind") == "internal"
+        for item in sorted(
+            details,
+            key=lambda item: 0 if item.get("app_type") == "gui" else 1,
+        )
+        if item.get("kind") == "internal" and not item.get("requires_arguments")
     ]
     if internal:
         return internal[:1]
 
-    non_auxiliary = [
-        item["path"]
-        for item in details
-        if item.get("kind") != "auxiliary"
-    ]
-    if non_auxiliary:
-        return non_auxiliary[:1]
-
-    return entries[:1] if len(entries) == 1 else []
+    # Services, libraries, diagnostics, training scripts, and mandatory-argument
+    # CLI tools are still visible to users but are not automatic EXE candidates.
+    return []
 
 
 def wait_for_terminal(client: TestClient, job_id: str, timeout: int) -> dict:
