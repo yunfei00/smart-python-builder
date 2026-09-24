@@ -327,10 +327,9 @@ class BuildEngine:
                 try:
                     code = process.wait(timeout=startup_seconds)
                 except subprocess.TimeoutExpired:
-                    cls._stop_smoke_process(process)
                     log.write(
                         f"SMOKE TEST PASS: {app_type} process stayed alive for "
-                        f"{startup_seconds:.1f}s; process tree stopped\n"
+                        f"{startup_seconds:.1f}s; process tree will be stopped\n"
                     )
                     return
                 log.write(f"[smoke] exit_code={code}\n")
