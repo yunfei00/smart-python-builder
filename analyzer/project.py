@@ -103,7 +103,10 @@ def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
     rel = path.relative_to(root).as_posix()
     name = path.stem.lower()
     parts = {part.lower() for part in path.relative_to(root).parts}
-    auxiliary_tokens = ("smoke", "probe", "preflight", "diagnostic", "debug", "benchmark")
+    auxiliary_tokens = (
+        "smoke", "probe", "preflight", "diagnostic", "debug", "benchmark",
+        "check", "verify", "validate", "audit", "qualify",
+    )
     auxiliary = any(token in name for token in auxiliary_tokens)
     internal = "src" in parts and not auxiliary
     if auxiliary:

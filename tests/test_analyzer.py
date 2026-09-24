@@ -229,3 +229,36 @@ if __name__ == "__main__":
     assert details["src/demo/ui/app.py"]["recommended"] is False
     assert details["scripts/gui_smoke.py"]["kind"] == "auxiliary"
     assert details["scripts/probe_fsw.py"]["kind"] == "auxiliary"
+
+
+
+def test_classifies_diagnostic_checkers_as_auxiliary(tmp_path):
+    write(tmp_path / "packaging" / "check_windows_dependencies.py", """
+def main():
+    return 2
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "tools" / "verify_installation.py", """
+def main():
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "scripts" / "run_gui.py", """
+def main():
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    result = analyze_project(tmp_path)
+    details = {item["path"]: item for item in result.entry_details}
+    assert details["packaging/check_windows_dependencies.py"]["kind"] == "auxiliary"
+    assert details["packaging/check_windows_dependencies.py"]["recommended"] is False
+    assert details["tools/verify_installation.py"]["kind"] == "auxiliary"
+    assert details["tools/verify_installation.py"]["recommended"] is False
+    assert details["scripts/run_gui.py"]["kind"] == "application"
+    assert details["scripts/run_gui.py"]["recommended"] is True
