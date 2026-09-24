@@ -247,7 +247,11 @@ def main():
 
             artifact = str(result.get("artifact") or "")
             if artifact.lower().endswith(".exe"):
-                exe = root / "downloaded.exe"
+                if len(selected) != 1:
+                    raise AssertionError(
+                        f"single EXE artifact returned for multiple entries: {selected}"
+                    )
+                exe = root / (Path(selected[0]).stem + ".exe")
                 exe.write_bytes(downloaded.content)
                 executables = [exe]
             else:
