@@ -14,7 +14,7 @@ import secrets
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Depends
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -40,6 +40,36 @@ from .maintenance import cleanup_jobs, delete_job_files
 
 def _allowed_hosts() -> list[str]:
     return allowed_hosts(environment_settings()[0]['allowed_hosts'])
+
+
+def _normalize_entry_path(value: str) -> str:
+    """Canonical project-relative entry path used by API, persisted jobs, and UI."""
+    raw = (value or "").strip().replace("\\", "/")
+    while raw.startswith("./"):
+        raw = raw[2:]
+    if not raw:
+        raise ValueError("empty entry path")
+    path = PurePosixPath(raw)
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {".", ".."} for part in path.parts)
+        or ":" in path.parts[0]
+    ):
+        raise ValueError(f"invalid entry path: {value}")
+    return path.as_posix()
+
+
+def _normalized_job_entries(job: dict) -> list[str]:
+    normalized: list[str] = []
+    for value in job.get("entries", []):
+        try:
+            entry = _normalize_entry_path(value)
+        except ValueError:
+            continue
+        if entry not in normalized:
+            normalized.append(entry)
+    return normalized
 
 
 def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admin_token=None, *, ai_factory=None, notifier_factory=None):
@@ -622,8 +652,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
                 shutil.rmtree(upload_dir.resolve())
             raise HTTPException(400, str(exc)) from exc
-        job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries], entry_details=analysis.entry_details,
-                   entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
+        job = dict(id=job_id, status='READY', source=str(source), entries=[p.relative_to(analysis.project_root).as_posix() for p in entries], entry_details=analysis.entry_details,
+                   entry=analysis.entry_point.relative_to(analysis.project_root).as_posix() if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
                    source_type='upload', owner_id=user['id'] if user else None,
                    project_name=Path(file.filename or 'Python project').stem[:120] or 'Python project',
@@ -680,11 +710,18 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
     @app.get('/api/jobs/{job_id}/plan')
     def preview(request: Request, job_id: str, entry: str, mode: str = 'onefile'):
         job = get_job_for_request(job_id, request)
-        if entry not in job['entries'] or mode not in {'onefile', 'onedir'}:
+        try:
+            normalized_entry = _normalize_entry_path(entry)
+        except ValueError:
+            raise HTTPException(400, '请选择有效入口和输出格式')
+        allowed_entries = _normalized_job_entries(job)
+        if normalized_entry not in allowed_entries or mode not in {'onefile', 'onedir'}:
             raise HTTPException(400, '请选择有效入口和输出格式')
         analysis = analyze_project(job['source'])
         builder = make_builder()
-        return builder.experiences.plan(analysis, analysis.project_root / entry, mode=mode).to_dict()
+        return builder.experiences.plan(
+            analysis, analysis.project_root / normalized_entry, mode=mode
+        ).to_dict()
 
     @app.post('/api/jobs/{job_id}/build')
     def start(request: Request, job_id: str, entry: str = Form(''), entries: str = Form(''), mode: str = Form('onefile')):
@@ -695,9 +732,29 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
         with lock:
             if job['status'] != 'READY':
                 raise HTTPException(409, '任务已开始')
-            selected_entries = [value for value in entries.split('|') if value] if entries else ([entry] if entry else [])
-            if not selected_entries or any(value not in job['entries'] for value in selected_entries) or len(set(selected_entries)) != len(selected_entries) or mode not in {'onefile', 'onedir'}:
+            raw_entries = [value for value in entries.split('|') if value] if entries else ([entry] if entry else [])
+            try:
+                selected_entries = [_normalize_entry_path(value) for value in raw_entries]
+            except ValueError:
                 raise HTTPException(400, '请选择有效入口和输出格式')
+            allowed_entries = _normalized_job_entries(job)
+            if (
+                not selected_entries
+                or any(value not in allowed_entries for value in selected_entries)
+                or len(set(selected_entries)) != len(selected_entries)
+                or mode not in {'onefile', 'onedir'}
+            ):
+                raise HTTPException(400, '请选择有效入口和输出格式')
+            # Migrate persisted READY jobs created on Windows before entry paths
+            # were canonicalized. This keeps old browser sessions buildable.
+            if job.get('entries') != allowed_entries:
+                job['entries'] = allowed_entries
+                if job.get('entry'):
+                    try:
+                        job['entry'] = _normalize_entry_path(job['entry'])
+                    except ValueError:
+                        job['entry'] = None
+                persist(job)
             if sum(not item.get('terminal') and item['status'] != 'READY' for item in jobs.values()) >= 8:
                 raise HTTPException(429, '构建队列已满，请稍后重试')
             if not secrets.compare_digest(request.headers.get('x-csrf-token', ''), user['csrf']):
