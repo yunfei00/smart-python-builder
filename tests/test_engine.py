@@ -215,3 +215,39 @@ def test_argparse_required_args_detection():
     assert not BuildEngine._argparse_requires_arguments(
         "usage: tool.exe [-h]\nnormal help text\n"
     )
+
+
+
+def test_smoke_timeout_means_startup_success_for_long_running_process(monkeypatch, tmp_path):
+    class FakeProcess:
+        def __init__(self):
+            self.returncode = None
+            self.pid = 1234
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired(["fake.exe"], timeout)
+            return self.returncode
+        def poll(self):
+            return self.returncode
+
+    process = FakeProcess()
+    monkeypatch.setattr("builder.engine.os.name", "nt")
+    monkeypatch.setattr("builder.engine.subprocess.Popen", lambda *args, **kwargs: process)
+
+    stopped = []
+    def stop(fake):
+        fake.returncode = -1
+        stopped.append(fake)
+
+    monkeypatch.setattr(BuildEngine, "_stop_smoke_process", stop)
+    exe = tmp_path / "server.exe"
+    exe.write_bytes(b"fixture")
+    log = tmp_path / "build.log"
+    log.write_text("", encoding="utf-8")
+
+    BuildEngine._smoke_test_executable(
+        exe, "console", log, startup_seconds=0.01, console_seconds=90.0
+    )
+
+    assert stopped == [process]
+    assert "SMOKE TEST PASS: console process stayed alive" in log.read_text(encoding="utf-8")

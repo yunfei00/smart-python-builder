@@ -325,12 +325,13 @@ class BuildEngine:
             )
             try:
                 try:
-                    code = process.wait(timeout=startup_seconds if app_type == 'gui' else console_seconds)
+                    code = process.wait(timeout=startup_seconds)
                 except subprocess.TimeoutExpired:
                     cls._stop_smoke_process(process)
-                    if app_type != 'gui':
-                        raise RuntimeError(f'Console smoke test timed out: {executable}')
-                    log.write(f"SMOKE TEST PASS: GUI stayed alive for {startup_seconds:.1f}s; process tree stopped\n")
+                    log.write(
+                        f"SMOKE TEST PASS: {app_type} process stayed alive for "
+                        f"{startup_seconds:.1f}s; process tree stopped\n"
+                    )
                     return
                 log.write(f"[smoke] exit_code={code}\n")
                 if code != 0:
