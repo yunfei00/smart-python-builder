@@ -201,3 +201,17 @@ def test_smoke_test_failure_marks_build_failed(tmp_path, monkeypatch):
     assert not result.success
     assert result.artifact is None
     assert "startup smoke failed" in result.error
+
+
+
+def test_argparse_required_args_detection():
+    assert BuildEngine._argparse_requires_arguments(
+        "usage: tool.exe [-h] --input INPUT\n"
+        "tool.exe: error: the following arguments are required: --input\n"
+    )
+    assert not BuildEngine._argparse_requires_arguments(
+        "Traceback (most recent call last):\nModuleNotFoundError: missing_module\n"
+    )
+    assert not BuildEngine._argparse_requires_arguments(
+        "usage: tool.exe [-h]\nnormal help text\n"
+    )

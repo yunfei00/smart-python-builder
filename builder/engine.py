@@ -293,6 +293,15 @@ class BuildEngine:
             process.wait(timeout=5)
             raise RuntimeError('Smoke test process tree did not stop cleanly')
 
+    @staticmethod
+    def _argparse_requires_arguments(text: str) -> bool:
+        diagnostic = (text or "").lower()
+        return (
+            "usage:" in diagnostic
+            and "error:" in diagnostic
+            and "arguments are required" in diagnostic
+        )
+
     @classmethod
     def _smoke_test_executable(
         cls,
@@ -325,6 +334,40 @@ class BuildEngine:
                     return
                 log.write(f"[smoke] exit_code={code}\n")
                 if code != 0:
+                    log.flush()
+                    diagnostic = log_file.read_text(encoding="utf-8", errors="replace")[-12000:]
+                    if (
+                        app_type != "gui"
+                        and code == 2
+                        and cls._argparse_requires_arguments(diagnostic)
+                    ):
+                        log.write(
+                            "[smoke] CLI requires arguments; retrying packaged executable with --help\n"
+                        )
+                        log.flush()
+                        help_process = subprocess.Popen(
+                            [str(executable), "--help"],
+                            cwd=executable.parent,
+                            stdout=log,
+                            stderr=subprocess.STDOUT,
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                        )
+                        try:
+                            try:
+                                help_code = help_process.wait(timeout=min(console_seconds, 30.0))
+                            except subprocess.TimeoutExpired:
+                                cls._stop_smoke_process(help_process)
+                                raise RuntimeError(
+                                    f"CLI --help smoke test timed out: {executable}"
+                                )
+                            log.write(f"[smoke --help] exit_code={help_code}\n")
+                            if help_code == 0:
+                                log.write(
+                                    "SMOKE TEST PASS: argparse CLI started and --help exited 0\n"
+                                )
+                                return
+                        finally:
+                            cls._stop_smoke_process(help_process)
                     raise RuntimeError(f'Packaged executable failed startup smoke test with exit code {code}: {executable}; see {log_file}')
                 log.write("SMOKE TEST PASS: exit code 0\n")
             finally:
