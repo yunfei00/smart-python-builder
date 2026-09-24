@@ -143,6 +143,7 @@ def clone_public_github_repository(url: str, target: Path, ref: str | None = Non
                "-c", "protocol.file.allow=never", "-c", "credential.helper=",
                "-c", "credential.interactive=false", "-c", "core.askPass=",
                "-c", "http.extraHeader=", "-c", "http.cookieFile=",
+               "-c", "core.longpaths=true",
                "-c", "core.hooksPath=" + str(empty_hooks), "-c", "submodule.recurse=false"]
     deadline = time.monotonic() + timeout
     direct = False

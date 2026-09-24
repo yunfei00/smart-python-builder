@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 import contextlib
 import re
 import secrets
+import os
+import stat
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -70,6 +72,21 @@ def _normalized_job_entries(job: dict) -> list[str]:
         if entry not in normalized:
             normalized.append(entry)
     return normalized
+
+
+def _safe_rmtree(path: Path) -> None:
+    """Best-effort cleanup that does not hide the original import/build error."""
+    def retry_readonly(function, filename, _exc_info):
+        try:
+            os.chmod(filename, stat.S_IWRITE)
+            function(filename)
+        except OSError:
+            pass
+
+    try:
+        shutil.rmtree(path, onerror=retry_readonly)
+    except OSError:
+        pass
 
 
 def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admin_token=None, *, ai_factory=None, notifier_factory=None):
@@ -650,7 +667,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             plan = builder.experiences.plan(analysis, analysis.entry_point).to_dict() if analysis.entry_point else None
         except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
-                shutil.rmtree(upload_dir.resolve())
+                _safe_rmtree(upload_dir.resolve())
             raise HTTPException(400, str(exc)) from exc
         job = dict(id=job_id, status='READY', source=str(source), entries=[p.relative_to(analysis.project_root).as_posix() for p in entries], entry_details=analysis.entry_details,
                    entry=analysis.entry_point.relative_to(analysis.project_root).as_posix() if analysis.entry_point else None,
@@ -665,7 +682,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 persist(job)
         except HTTPException:
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
-                shutil.rmtree(upload_dir.resolve())
+                _safe_rmtree(upload_dir.resolve())
             raise
         return job
 
@@ -684,7 +701,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
             plan = builder.experiences.plan(analysis, analysis.entry_point).to_dict() if analysis.entry_point else None
         except (ValueError, OSError, RuntimeError) as exc:
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
-                shutil.rmtree(upload_dir.resolve())
+                _safe_rmtree(upload_dir.resolve())
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=400, content={
                 'detail': safe_git_diagnostic(str(exc)),
@@ -703,7 +720,7 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 persist(job)
         except HTTPException:
             if upload_dir.exists() and not upload_dir.is_symlink() and upload_dir.resolve().parent == (root / 'uploads').resolve():
-                shutil.rmtree(upload_dir.resolve())
+                _safe_rmtree(upload_dir.resolve())
             raise
         return job
 
