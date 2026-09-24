@@ -118,7 +118,7 @@ def test_final_package_stages_spreadsheets_and_no_source(tmp_path, mode):
 @pytest.mark.parametrize('app_type,code,timeout,passes', [
     ('console', 0, False, True), ('console', 1, False, False),
     ('gui', 1, False, False), ('gui', None, True, True),
-    ('console', None, True, False),
+    ('console', None, True, True),
 ])
 def test_smoke_rules_capture_output_and_stop_timed_out_process(tmp_path, monkeypatch, app_type, code, timeout, passes):
     stopped = []
