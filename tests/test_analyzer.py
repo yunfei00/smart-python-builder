@@ -213,8 +213,12 @@ if __name__ == "__main__":
     main()
 """)
     write(tmp_path / "scripts" / "run_combined_capture.py", """
+import argparse
 def main():
-    pass
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fsw-resource", required=True)
+    parser.add_argument("--dsox-resource", required=True)
+    parser.parse_args()
 if __name__ == "__main__":
     main()
 """)
@@ -229,7 +233,8 @@ if __name__ == "__main__":
     result = analyze_project(tmp_path)
     details = {item["path"]: item for item in result.entry_details}
     assert details["scripts/run_gui.py"]["recommended"] is True
-    assert details["scripts/run_combined_capture.py"]["recommended"] is True
+    assert details["scripts/run_combined_capture.py"]["recommended"] is False
+    assert details["scripts/run_combined_capture.py"]["requires_arguments"] is True
     assert details["src/demo/ui/app.py"]["kind"] == "internal"
     assert details["src/demo/ui/app.py"]["recommended"] is False
     assert details["scripts/gui_smoke.py"]["kind"] == "auxiliary"
@@ -390,3 +395,33 @@ def test_ml_and_project_maintenance_scripts_are_auxiliary(tmp_path):
     for script in scripts:
         assert details[script]["kind"] == "auxiliary"
         assert details[script]["recommended"] is False
+
+
+
+def test_manual_service_and_library_demo_are_not_recommended(tmp_path):
+    write(tmp_path / "scripts" / "manual_capture.py", """
+def main():
+    return 0
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "agent" / "main.py", """
+from fastapi import FastAPI
+app = FastAPI()
+""")
+    write(tmp_path / "android_phone.py", """
+from android_phone import helper
+if __name__ == "__main__":
+    print(helper)
+""")
+    write(tmp_path / "android_phone" / "__init__.py", "helper = 1\n")
+
+    result = analyze_project(tmp_path)
+    details = {item["path"]: item for item in result.entry_details}
+
+    assert details["scripts/manual_capture.py"]["kind"] == "auxiliary"
+    assert details["scripts/manual_capture.py"]["recommended"] is False
+    assert details["agent/main.py"]["kind"] == "service"
+    assert details["agent/main.py"]["recommended"] is False
+    assert details["android_phone.py"]["kind"] == "auxiliary"
+    assert details["android_phone.py"]["recommended"] is False
