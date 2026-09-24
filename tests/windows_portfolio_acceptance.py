@@ -254,11 +254,18 @@ def main():
                 executables = inspect_zip(downloaded.content, root)
 
             assert executables, "successful build download contained no executable"
+            selected_types = {
+                Path(item["path"]).stem: (
+                    "gui" if item.get("app_type") == "gui" else "console"
+                )
+                for item in details
+                if item.get("path") in selected
+            }
             smoke_log = root / "download-smoke.log"
             for exe in executables:
                 BuildEngine._smoke_test_executable(
                     exe,
-                    "gui",
+                    selected_types.get(exe.stem, "console"),
                     smoke_log,
                     startup_seconds=8,
                 )
@@ -274,6 +281,10 @@ def main():
                 entry_details=details,
                 build_id=result.get("build_id"),
                 executables=[str(path) for path in executables],
+                executable_types={
+                    path.name: selected_types.get(path.stem, "console")
+                    for path in executables
+                },
             )
             print(
                 "PORTFOLIO BUILD PASS",
