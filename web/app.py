@@ -690,8 +690,8 @@ def create_app(root: Path | str = 'web-data', builder_factory=SmartBuilder, admi
                 'detail': safe_git_diagnostic(str(exc)),
                 'code': exc.code if isinstance(exc, RepositoryImportError) else 'repository_import_error',
             })
-        job = dict(id=job_id, status='READY', source=str(source), entries=[str(p.relative_to(analysis.project_root)) for p in entries], entry_details=analysis.entry_details,
-                   entry=str(analysis.entry_point.relative_to(analysis.project_root)) if analysis.entry_point else None,
+        job = dict(id=job_id, status='READY', source=str(source), entries=[p.relative_to(analysis.project_root).as_posix() for p in entries], entry_details=analysis.entry_details,
+                   entry=analysis.entry_point.relative_to(analysis.project_root).as_posix() if analysis.entry_point else None,
                    dependencies=analysis.packages, dependency_source=analysis.dependency_source, plan=plan, created_at=time.time(), terminal=False,
                    source_type='github', repository_url=payload.get('url', '').strip(), repository_ref=(payload.get('ref') or '').strip() or None,
                    owner_id=user['id'] if user else None,
