@@ -1,0 +1,95 @@
+name: Python Portfolio Compatibility
+
+on:
+  push:
+    branches:
+      - feature/multi-app-build
+    paths:
+      - "analyzer/**"
+      - "builder/**"
+      - "web/**"
+      - "tests/windows_portfolio_acceptance.py"
+      - ".github/workflows/python-portfolio-compatibility.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-github-build:
+    name: ${{ matrix.repository }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        repository:
+          - cleanpilot
+          - nfs-ml-suite
+          - bmp-object-detector
+          - instrument-automation-platform
+          - port-bridge
+          - smart-hub-platform
+          - em-field-modeling
+          - ota2ffs
+          - cmw500_auto_test
+          - noise-source-identification
+          - nfs_scanner
+          - nmea-track-tool
+          - nfs-scanner-pro
+          - AndroidPhone
+          - growth-learning
+          - smart-python-builder
+          - laser-morphology-classifier
+          - torch-training-template
+          - mp4-gif-tool
+          - auto-sales-agent
+          - instrument-capture-studio
+          - python_module
+          - field_data_display
+          - pytorch_mnist_demo
+          - modbus-tool
+          - serial-debug-assistant
+          - android-device-agent
+          - phone-voice-insight
+          - nfs-scanner
+          - noise-source-studio
+          - interference-source-identidication
+          - android-dut-agent
+          - pyside6_mul_process_frame
+          - version-downloader
+          - visa_interface
+          - django-bootstrap-baseline
+          - scope-zero-span-converter
+
+    steps:
+      - name: Checkout Smart Python Builder
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
+
+      - name: Sync test environment
+        run: uv sync --frozen
+
+      - name: Import, build and smoke real repository
+        shell: pwsh
+        run: uv run python tests/windows_portfolio_acceptance.py --repository "https://github.com/yunfei00/${{ matrix.repository }}" --timeout 2400
+
+      - name: Upload compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-${{ matrix.repository }}
+          path: |
+            workspace/portfolio-*/portfolio-result.json
+            workspace/portfolio-*/download-smoke.log
+            workspace/portfolio-*/**/build.log
+          if-no-files-found: ignore
+          retention-days: 7
