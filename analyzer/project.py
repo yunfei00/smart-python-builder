@@ -99,6 +99,35 @@ def _entry_candidates(root: Path, files: list[Path]) -> list[Path]:
 
 
 
+def _entry_app_type(path: Path) -> str:
+    name = path.stem.lower()
+    if any(token in name for token in ("gui", "ui", "app")):
+        return "gui"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    except (OSError, UnicodeError, SyntaxError):
+        return "cli"
+
+    gui_modules = {"PySide6", "PyQt6", "PyQt5", "tkinter", "wx", "kivy"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".", 1)[0] in gui_modules for alias in node.names):
+                return "gui"
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".", 1)[0] in gui_modules:
+                return "gui"
+        elif isinstance(node, ast.Call):
+            func = node.func
+            call_name = (
+                func.id if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute)
+                else ""
+            )
+            if call_name in {"QApplication", "Tk", "mainloop", "MainLoop"}:
+                return "gui"
+    return "cli"
+
+
 def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
     rel = path.relative_to(root).as_posix()
     name = path.stem.lower()
@@ -115,7 +144,7 @@ def _entry_detail(root: Path, path: Path) -> dict[str, str | bool]:
         kind, confidence, recommended = "internal", "medium", False
     else:
         kind, confidence, recommended = "application", "high", True
-    app_type = "gui" if any(token in name for token in ("gui", "ui", "app")) else "cli"
+    app_type = _entry_app_type(path)
     return {
         "path": rel,
         "kind": kind,

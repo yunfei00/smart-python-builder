@@ -172,7 +172,7 @@ class ExperienceEngine:
         return [known.repair for profile in self.profiles for known in profile.known_errors if known.pattern in error]
 
     def plan(self, analysis: ProjectAnalysis, entry: Path, *, windowed=None, mode='onefile') -> BuildPlan:
-        plan = BuildPlan(str(entry.relative_to(analysis.project_root)), list(analysis.packages), analysis.dependency_source, mode=mode)
+        plan = BuildPlan(entry.relative_to(analysis.project_root).as_posix(), list(analysis.packages), analysis.dependency_source, mode=mode)
         plan.decision_sources = {'entry_point': 'analysis/user selection', 'dependencies': analysis.dependency_source, 'mode': 'user/default'}
         for profile in self.profiles:
             if not set(profile.imports) & analysis.imports:
@@ -185,6 +185,16 @@ class ExperienceEngine:
             plan.collect_all.extend(profile.collect_all)
             plan.data_files.extend([list(item) for item in profile.data_files])
             plan.pyinstaller_args.extend(profile.pyinstaller_args)
+
+        entry_rel = entry.relative_to(analysis.project_root).as_posix()
+        entry_detail = next(
+            (item for item in analysis.entry_details if item.get("path") == entry_rel),
+            None,
+        )
+        if entry_detail and entry_detail.get("app_type") in {"gui", "cli"}:
+            plan.app_type = "gui" if entry_detail["app_type"] == "gui" else "console"
+            plan.decision_sources["app_type"] = "selected entry"
+
         if windowed is not None:
             plan.app_type = 'gui' if windowed else 'console'
             plan.decision_sources['app_type'] = 'user'

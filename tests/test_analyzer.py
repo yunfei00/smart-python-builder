@@ -262,3 +262,43 @@ if __name__ == "__main__":
     assert details["tools/verify_installation.py"]["recommended"] is False
     assert details["scripts/run_gui.py"]["kind"] == "application"
     assert details["scripts/run_gui.py"]["recommended"] is True
+
+
+
+def test_entry_app_type_is_specific_to_selected_entry(tmp_path):
+    write(tmp_path / "scripts" / "run_gui.py", """
+from demo.ui import main
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "scripts" / "run_combined_capture.py", """
+import argparse
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resource", required=True)
+    parser.parse_args()
+    return 0
+if __name__ == "__main__":
+    raise SystemExit(main())
+""")
+    write(tmp_path / "src" / "demo" / "ui.py", """
+from PySide6.QtWidgets import QApplication
+def main():
+    app = QApplication([])
+    return app.exec()
+""")
+    result = analyze_project(tmp_path)
+    details = {item["path"]: item for item in result.entry_details}
+    assert details["scripts/run_gui.py"]["app_type"] == "gui"
+    assert details["scripts/run_combined_capture.py"]["app_type"] == "cli"
+
+
+def test_gui_main_is_detected_from_imports(tmp_path):
+    write(tmp_path / "main.py", """
+from PySide6.QtWidgets import QApplication
+if __name__ == "__main__":
+    app = QApplication([])
+    raise SystemExit(app.exec())
+""")
+    result = analyze_project(tmp_path)
+    assert result.entry_details[0]["app_type"] == "gui"
